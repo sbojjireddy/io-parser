@@ -100,6 +100,8 @@ function prorateFlight(flight: FlightSegment): FlightSegment[] {
   
   const segments: FlightSegment[] = [];
   let currentDate = startDate;
+  let remainingCost = flight.cost || 0;
+  let remainingUnits = flight.units || 0;
   
   while (currentDate <= endDate) {
     // Find end of current month
@@ -111,8 +113,28 @@ function prorateFlight(flight: FlightSegment): FlightSegment[] {
     
     // Calculate prorated values
     const prorationFactor = segmentDays / totalDays;
-    const proratedCost = flight.cost ? Math.round(flight.cost * prorationFactor * 100) / 100 : null;
-    const proratedUnits = flight.units ? Math.round(flight.units * prorationFactor) : null;
+    let proratedCost: number | null = null;
+    let proratedUnits: number | null = null;
+    
+    if (flight.cost !== null) {
+      // For the last segment, use remaining cost to avoid rounding errors
+      if (currentDate >= endDate || addDays(segmentEnd, 1) > endDate) {
+        proratedCost = Math.round(remainingCost * 100) / 100;
+      } else {
+        proratedCost = Math.round(flight.cost * prorationFactor * 100) / 100;
+        remainingCost -= proratedCost;
+      }
+    }
+    
+    if (flight.units !== null) {
+      // For the last segment, use remaining units to avoid rounding errors
+      if (currentDate >= endDate || addDays(segmentEnd, 1) > endDate) {
+        proratedUnits = remainingUnits;
+      } else {
+        proratedUnits = Math.round(flight.units * prorationFactor);
+        remainingUnits -= proratedUnits;
+      }
+    }
     
     // Create segment
     const segment: FlightSegment = {
@@ -168,12 +190,10 @@ export function applyFlightLogic(
     flights: allSegments
   };
   
-  // Update totals to reflect all segments
-  const totalCost = allSegments.reduce((sum, segment) => sum + (segment.cost || 0), 0);
-  const totalUnits = allSegments.reduce((sum, segment) => sum + (segment.units || 0), 0);
-  
-  result.total_campaign_spend = Math.round(totalCost * 100) / 100;
-  result.total_contracted_impressions = totalUnits;
+  // Keep original totals - proration should not change the total campaign values
+  // The proration is only for splitting flights across months, not changing totals
+  result.total_campaign_spend = originalTotalCost;
+  result.total_contracted_impressions = originalTotalUnits;
   
   // Add processing notes to explanation
   if (processingNotes.length > 0) {
