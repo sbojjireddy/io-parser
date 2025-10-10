@@ -7,6 +7,8 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "run:stage1": "tsx pipeline/run_stage1.ts",
+    "run:stage2": "tsx pipeline/run_stage2.ts",
+    "run:stage3": "tsx pipeline/run_stage3.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -16,6 +18,7 @@
   "dependencies": {
     "@types/multer": "^2.0.0",
     "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "multer": "^2.0.2",
