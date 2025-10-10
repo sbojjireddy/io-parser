@@ -59,6 +59,12 @@ app.get('/', (req, res) => {
   res.json({ message: 'ok' });
 });
 
+// Import pipeline functions
+import { runStage1 } from '../pipeline/run_stage1.js';
+import { runStage2 } from '../pipeline/run_stage2.js';
+import { runStage3 } from '../pipeline/run_stage3.js';
+import { runStage4 } from '../pipeline/run_stage4.js';
+
 // File upload route
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
@@ -137,6 +143,114 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error('Upload error:', error);
     res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+// Full pipeline processing route
+app.post('/api/process-pipeline', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    console.log('Starting full pipeline processing...');
+    
+    // Compute SHA256
+    const sha256 = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    
+    // Ensure directories exist
+    ensureDirectories();
+    
+    // Write file to disk
+    const filePath = path.join('data/raw', `${sha256}.pdf`);
+    fs.writeFileSync(filePath, req.file.buffer);
+    
+    // Load cache and check if file already exists
+    const cache = loadCache();
+    let openaiFileId = cache[sha256]?.openaiFileId;
+    
+    console.log('Cache loaded:', Object.keys(cache).length, 'entries');
+    console.log('File SHA256:', sha256);
+    console.log('Already cached:', !!openaiFileId);
+    
+    // Upload to OpenAI if not cached
+    if (!openaiFileId) {
+      try {
+        // Write file to temp location for OpenAI upload
+        const tempFilePath = path.join('data/raw', `temp_${sha256}.pdf`);
+        fs.writeFileSync(tempFilePath, req.file.buffer);
+        
+        // Upload using file path
+        const file_obj = await openai.files.create({
+          file: fs.createReadStream(tempFilePath) as any,
+          purpose: "user_data"
+        });
+        
+        // Clean up temp file
+        fs.unlinkSync(tempFilePath);
+        openaiFileId = file_obj.id;
+        console.log('Successfully uploaded to OpenAI:', openaiFileId);
+      } catch (openaiError) {
+        console.error('OpenAI upload error:', (openaiError as Error).message);
+        return res.status(500).json({ error: 'Failed to upload to OpenAI' });
+      }
+      
+      // Save cache entry
+      cache[sha256] = {
+        openaiFileId,
+        filename: req.file.originalname,
+        uploadedAt: new Date().toISOString(),
+        uploadStatus: 'success'
+      };
+      saveCache(cache);
+    }
+    
+    // Run Stage 1: Text Extraction
+    console.log('Running Stage 1: Text Extraction...');
+    const stage1Result = await runStage1(sha256, filePath, openaiFileId);
+    
+    // Run Stage 4: Complete Pipeline (includes Stage 2 + Stage 3 + Confidence)
+    console.log('Running Stage 4: Complete Pipeline (Parsing + Flight Logic + Confidence)...');
+    const stage4Result = await runStage4(
+      sha256,
+      stage1Result.openai.filePath,
+      stage1Result.pymupdf.orderNumber?.order_number
+    );
+    
+    console.log('Pipeline completed successfully!');
+    
+    res.json({
+      success: true,
+      sha256,
+      filename: req.file.originalname,
+      openaiFileId,
+      pipeline: {
+        stage1: {
+          openai: { textLength: stage1Result.openai.text.length },
+          pymupdf: { 
+            textLength: stage1Result.pymupdf.text.length,
+            orderNumber: stage1Result.pymupdf.orderNumber?.order_number
+          }
+        },
+        stage4: {
+          overallScore: stage4Result.confidenceReport.overall_score,
+          useCount: stage4Result.confidenceReport.summary.use_count,
+          reviewCount: stage4Result.confidenceReport.summary.review_count,
+          rejectCount: stage4Result.confidenceReport.summary.reject_count,
+          advertiser: stage4Result.finalData.advertiser_name,
+          agency: stage4Result.finalData.agency_name,
+          flights: stage4Result.finalData.flights?.length || 0
+        }
+      },
+      finalData: stage4Result.finalData
+    });
+    
+  } catch (error) {
+    console.error('Pipeline processing error:', (error as Error).message);
+    res.status(500).json({ 
+      error: 'Pipeline processing failed', 
+      details: (error as Error).message 
+    });
   }
 });
 

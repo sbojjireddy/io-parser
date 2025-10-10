@@ -17,6 +17,9 @@ export interface FlightSegment {
   provenance: {
     quote: string;
     location_hint: string;
+    find_confidence_interval: [number, number];
+    value_confidence_interval: [number, number];
+    rationale: string;
   };
 }
 
@@ -47,6 +50,9 @@ export interface ProcessedIO {
     field: string;
     quote: string;
     location_hint: string;
+    find_confidence_interval: [number, number];
+    value_confidence_interval: [number, number];
+    rationale: string;
   }>;
 }
 

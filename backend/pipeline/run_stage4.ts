@@ -59,9 +59,9 @@ export async function runStage4(
       provenance: {
         quote: flight.provenance.quote,
         location_hint: flight.provenance.location_hint,
-        find_confidence: 85, // Default confidence for processed flights
-        value_confidence: 85, // Default confidence for processed flights
-        rationale: "Processed flight with month boundary proration applied"
+        find_confidence_interval: flight.provenance.find_confidence_interval,
+        value_confidence_interval: flight.provenance.value_confidence_interval,
+        rationale: flight.provenance.rationale
       }
     }));
 
@@ -70,9 +70,9 @@ export async function runStage4(
       field: prov.field,
       quote: prov.quote,
       location_hint: prov.location_hint,
-      find_confidence: 85, // Default confidence for processed provenance
-      value_confidence: 85, // Default confidence for processed provenance
-      rationale: "Processed provenance from stage 3 flight logic"
+      find_confidence_interval: prov.find_confidence_interval,
+      value_confidence_interval: prov.value_confidence_interval,
+      rationale: prov.rationale
     }));
 
     // Create IOData-compatible object

@@ -151,7 +151,7 @@ const JSON_SCHEMA = {
           },
           provenance: {
             type: "object",
-            required: ["quote", "location_hint", "find_confidence", "value_confidence", "rationale"],
+            required: ["quote", "location_hint", "find_confidence_interval", "value_confidence_interval", "rationale"],
             additionalProperties: false,
             properties: {
               quote: {
@@ -162,17 +162,27 @@ const JSON_SCHEMA = {
                 type: "string",
                 description: "Where in the document this flight info was found (e.g., 'page 5, Flighting details table, OCT 2025 column')"
               },
-              find_confidence: {
-                type: "integer",
-                minimum: 0,
-                maximum: 100,
-                description: "Likelihood the quoted span truly appears in TEXT and belongs to this field (0–100)"
+              find_confidence_interval: {
+                type: "array",
+                minItems: 2,
+                maxItems: 2,
+                items: {
+                  type: "integer",
+                  minimum: 0,
+                  maximum: 100
+                },
+                description: "Confidence interval [min, max] for likelihood the quoted span truly appears in TEXT and belongs to this field"
               },
-              value_confidence: {
-                type: "integer",
-                minimum: 0,
-                maximum: 100,
-                description: "Likelihood the normalized value you output is correct (0–100)"
+              value_confidence_interval: {
+                type: "array",
+                minItems: 2,
+                maxItems: 2,
+                items: {
+                  type: "integer",
+                  minimum: 0,
+                  maximum: 100
+                },
+                description: "Confidence interval [min, max] for likelihood the normalized value you output is correct"
               },
               rationale: {
                 type: "string",
@@ -210,7 +220,7 @@ const JSON_SCHEMA = {
       minItems: 1,
       items: {
         type: "object",
-        required: ["field", "quote", "location_hint", "find_confidence", "value_confidence", "rationale"],
+        required: ["field", "quote", "location_hint", "find_confidence_interval", "value_confidence_interval", "rationale"],
         additionalProperties: false,
         properties: {
           field: { 
@@ -225,17 +235,27 @@ const JSON_SCHEMA = {
             type: "string",
             description: "Where in the document this was found"
           },
-          find_confidence: {
-            type: "integer",
-            minimum: 0,
-            maximum: 100,
-            description: "Likelihood the quoted span truly appears in TEXT and belongs to this field (0–100)"
+          find_confidence_interval: {
+            type: "array",
+            minItems: 2,
+            maxItems: 2,
+            items: {
+              type: "integer",
+              minimum: 0,
+              maximum: 100
+            },
+            description: "Confidence interval [min, max] for likelihood the quoted span truly appears in TEXT and belongs to this field"
           },
-          value_confidence: {
-            type: "integer",
-            minimum: 0,
-            maximum: 100,
-            description: "Likelihood the normalized value you output is correct (0–100)"
+          value_confidence_interval: {
+            type: "array",
+            minItems: 2,
+            maxItems: 2,
+            items: {
+              type: "integer",
+              minimum: 0,
+              maximum: 100
+            },
+            description: "Confidence interval [min, max] for likelihood the normalized value you output is correct"
           },
           rationale: {
             type: "string",
@@ -289,7 +309,7 @@ Core rules
   * Reject and retry if you produce only one span flight when month columns are visible.
 
 Example (monthly)
-❌ Incorrect: P375Z4Z → one flight 2025-09-29 to 2025-12-07, Units 7,509,551, Cost $157,250.00  
+❌ Incorrect: P375Z4Z → one f light 2025-09-29 to 2025-12-07, Units 7,509,551, Cost $157,250.00  
 ✅ Correct: four flights  
 - Sep 25 → 214,559 / $4,492.87  
 - Oct 25 → 3,325,658 / $69,639.28  
@@ -400,16 +420,43 @@ Few-shot (weekly)
   * Verify sum(all flights' units) == \`total_contracted_impressions\` (± small epsilon). If not, re-check AV inclusion and that no summary numbers were used.
   * If sums of flights.units or flights.cost don't match top-level totals, still return flights and add a note in \`explanation.assumptions\`.
 
-**Confidence rules (embedded in provenance):**
-- For every field you extract, include in its provenance:
-  - find_confidence (0–100): likelihood the quoted span truly appears in TEXT and belongs to this field (based only on exact match + nearby labels/headers + location specificity).
-  - value_confidence (0–100): likelihood the normalized value you output is correct (formatting, unit interpretation, context alignment).
-  - rationale: a short reason tied to the evidence (max ~20 words).
-- Calibration:
-  - 100 only with exact quote + unambiguous label.
-  - 80–95 for strong evidence with minor ambiguity.
-  - 50–70 if label is weak or requires interpretation.
-  - ≤40 if partial, fuzzy, or speculative.
+**CONFIDENCE INTERVAL REQUIREMENTS**
+
+For every field you extract, you MUST include confidence intervals in the provenance:
+
+**Required Fields in Provenance:**
+- find_confidence_interval [min, max]: Confidence interval for likelihood the quoted span truly appears in TEXT and belongs to this field (based only on exact match + nearby labels/headers + location specificity)
+- value_confidence_interval [min, max]: Confidence interval for likelihood the normalized value you output is correct (formatting, unit interpretation, context alignment)
+- rationale: Short reason tied to the evidence (max ~20 words)
+
+**Calibration Guidelines:**
+- **[95, 100]**: Perfect exact match with crystal-clear label (rare)
+- **[85, 95]**: Exact quote with clear label, minor formatting differences
+- **[75, 90]**: Strong evidence, clear label, some interpretation needed
+- **[65, 80]**: Good evidence but requires some inference or context
+- **[55, 75]**: Moderate evidence, label is present but ambiguous
+- **[45, 65]**: Weak evidence, requires significant interpretation
+- **[35, 55]**: Partial match, fuzzy evidence
+- **[0, 45]**: Speculative, very uncertain
+
+**Examples:**
+- find_confidence_interval=[90, 95], value_confidence_interval=[85, 90]: "Advertiser: Taco Bell" → "Taco Bell" (exact match, clear label)
+- find_confidence_interval=[80, 90], value_confidence_interval=[70, 80]: "Budget: $50K" → 50000 (clear label, unit conversion)
+- find_confidence_interval=[65, 75], value_confidence_interval=[60, 70]: "Campaign runs 4/20-6/25" → dates (requires date parsing)
+- find_confidence_interval=[55, 65], value_confidence_interval=[50, 60]: "Contact: John Smith" → "John Smith" (unclear if this is AE)
+- find_confidence_interval=[40, 50], value_confidence_interval=[35, 45]: "~$25k budget" → 25000 (approximate, unclear formatting)
+
+**CRITICAL**: Use realistic confidence intervals. Most extractions should be [60, 90], not [95, 100]. Only use [95, 100] for perfect, unambiguous matches. Be honest about uncertainty - it helps with quality assessment.
+
+**Example Provenance Entry:**
+{
+  "field": "advertiser_name", 
+  "quote": "Advertiser: Taco Bell", 
+  "location_hint": "contract header section",
+  "find_confidence_interval": [90, 95],
+  "value_confidence_interval": [85, 90],
+  "rationale": "Exact match with clear label"
+}
 
 Output
 - Return JSON only.
@@ -486,17 +533,27 @@ ${text}`
 
     const parsed = JSON.parse(content);
     
-    // Override po_number with order number from PyMuPDF if available
+    // Override po_number with order number from PyMuPDF if available (PyMuPDF takes precedence)
     if (orderNumber) {
       parsed.po_number = orderNumber;
       // Add provenance entry for the order number override
       parsed.provenance.push({
         field: "po_number",
         quote: `Order Number: ${orderNumber}`,
-        location_hint: "extracted from PyMuPDF text extraction (override)",
-        find_confidence: 100,
-        value_confidence: 100,
-        rationale: "Order number provided by PyMuPDF extraction"
+        location_hint: "extracted from PyMuPDF text extraction (PyMuPDF precedence)",
+        find_confidence_interval: [95, 100],
+        value_confidence_interval: [95, 100],
+        rationale: "Order number provided by PyMuPDF extraction (takes precedence over OpenAI)"
+      });
+    } else if (parsed.po_number) {
+      // If PyMuPDF didn't find order number but OpenAI did, keep OpenAI's result
+      parsed.provenance.push({
+        field: "po_number",
+        quote: `Order Number: ${parsed.po_number}`,
+        location_hint: "extracted from OpenAI text parsing (fallback)",
+        find_confidence_interval: [80, 90],
+        value_confidence_interval: [75, 85],
+        rationale: "Order number from OpenAI parsing (PyMuPDF extraction failed)"
       });
     }
 
@@ -557,17 +614,27 @@ ${text}`
 
       const parsed = JSON.parse(content);
       
-      // Override po_number with order number from PyMuPDF if available
+      // Override po_number with order number from PyMuPDF if available (PyMuPDF takes precedence)
       if (orderNumber) {
         parsed.po_number = orderNumber;
         // Add provenance entry for the order number override
         parsed.provenance.push({
           field: "po_number",
           quote: `Order Number: ${orderNumber}`,
-          location_hint: "extracted from PyMuPDF text extraction (override)",
-          find_confidence: 100,
-          value_confidence: 100,
-          rationale: "Order number provided by PyMuPDF extraction"
+          location_hint: "extracted from PyMuPDF text extraction (PyMuPDF precedence)",
+          find_confidence_interval: [95, 100],
+          value_confidence_interval: [95, 100],
+          rationale: "Order number provided by PyMuPDF extraction (takes precedence over OpenAI)"
+        });
+      } else if (parsed.po_number) {
+        // If PyMuPDF didn't find order number but OpenAI did, keep OpenAI's result
+        parsed.provenance.push({
+          field: "po_number",
+          quote: `Order Number: ${parsed.po_number}`,
+          location_hint: "extracted from OpenAI text parsing (fallback)",
+          find_confidence_interval: [80, 90],
+          value_confidence_interval: [75, 85],
+          rationale: "Order number from OpenAI parsing (PyMuPDF extraction failed)"
         });
       }
 

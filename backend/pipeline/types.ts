@@ -25,8 +25,8 @@ export interface IOData {
     field: string;
     quote: string;
     location_hint: string;
-    find_confidence: number;
-    value_confidence: number;
+    find_confidence_interval: [number, number];
+    value_confidence_interval: [number, number];
     rationale: string;
   }>;
   confidence?: ConfidenceReport;
@@ -50,8 +50,8 @@ export interface FlightItem {
   provenance: {
     quote: string;
     location_hint: string;
-    find_confidence: number;
-    value_confidence: number;
+    find_confidence_interval: [number, number];
+    value_confidence_interval: [number, number];
     rationale: string;
   };
   segment_days?: number;

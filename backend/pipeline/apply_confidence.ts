@@ -976,16 +976,21 @@ function aggregateConfidence(
   };
 }
 
-// Helper function to extract LLM confidence from provenance
+// Helper function to extract LLM confidence from provenance (interval format)
 function getLLMConfidence(data: IOData, fieldName: string): { find_confidence: number; value_confidence: number } | undefined {
   const provenance = data.provenance?.find(p => p.field === fieldName);
-  if (provenance && provenance.find_confidence !== undefined && provenance.value_confidence !== undefined) {
-    return {
-      find_confidence: provenance.find_confidence,
-      value_confidence: provenance.value_confidence
-    };
+  if (!provenance || !provenance.find_confidence_interval || !provenance.value_confidence_interval) {
+    return undefined;
   }
-  return undefined;
+  
+  // Use the midpoint of the interval as the confidence score
+  const findConfidence = (provenance.find_confidence_interval[0] + provenance.find_confidence_interval[1]) / 2;
+  const valueConfidence = (provenance.value_confidence_interval[0] + provenance.value_confidence_interval[1]) / 2;
+  
+  return {
+    find_confidence: findConfidence,
+    value_confidence: valueConfidence
+  };
 }
 
 // Calculate average CPM from flights
