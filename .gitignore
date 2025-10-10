@@ -25,6 +25,16 @@ dist-ssr
 *.sln
 *.sw?
 
-*/data/*
+# Data directories - keep structure but ignore contents
+backend/data/raw/*
+backend/data/extracted/*
+backend/data/parsed/*
+backend/data/combined/*
+backend/data/logs/*
+!backend/data/raw/.gitkeep
+!backend/data/extracted/.gitkeep
+!backend/data/parsed/.gitkeep
+!backend/data/combined/.gitkeep
+!backend/data/logs/.gitkeep
 
 test*
