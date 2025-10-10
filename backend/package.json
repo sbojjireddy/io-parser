@@ -6,6 +6,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
+    "run:stage1": "tsx pipeline/run_stage1.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

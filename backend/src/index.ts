@@ -1,36 +1,17 @@
 // required imports
-import dotenv from 'dotenv';
 import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '../../.env') });
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import crypto from 'crypto';
 import fs from 'fs';
-import OpenAI from 'openai';
+import { openai } from '../lib/openai.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Log environment variables for debugging
 console.log('OPENAI_API_KEY set:', !!process.env.OPENAI_API_KEY);
-
-// Use either OPENAI_API_KEY or REACT_APP_OPENAI_API_KEY
-const apiKey = process.env.OPENAI_API_KEY;
-
-if (!apiKey) {
-  console.error('ERROR: No OpenAI API key found!');
-  console.error('Please set either OPENAI_API_KEY in your .env file');
-  process.exit(1);
-}
-
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: apiKey
-});
 
 // Configure multer for memory storage
 const upload = multer({ 
