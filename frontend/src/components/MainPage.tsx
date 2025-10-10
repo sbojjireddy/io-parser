@@ -110,7 +110,7 @@ const MainPage: React.FC<MainPageProps> = ({ onExtractionComplete, onExtractionE
             <div className="upload-icon">📁</div>
             <h3>Upload I/O Documents</h3>
             <p>Drag and drop files here, or click to select files.</p>
-            <p className="supported-formats">Supported formats: PDF, DOCX, XLSX, XLS, TXT.</p>
+            <p className="supported-formats">Supported formats: PDF</p>
             
             <input
               type="file"
@@ -191,7 +191,7 @@ const MainPage: React.FC<MainPageProps> = ({ onExtractionComplete, onExtractionE
       </div>
 
       <div className="footer">
-        <p>© 2024 Tubi IO Parser. Advanced document processing with confidence.</p>
+        <p>© 2024 Tubi Prompt-Engineered IO Parser.</p>
       </div>
     </div>
   );
