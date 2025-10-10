@@ -1,10 +1,11 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import { parseTextToJSON } from "./stage2_parse_text.js";
+import { parseTextToJSONWithStability } from "./stage2_parse_text.js";
 
 /**
  * Run stage 2 parsing on extracted text files
  * - Promise-based (await only)
+ * - Uses 3-run stability analysis for better confidence scoring
  * - Merges order number from PyMuPDF extraction
  * - Writes parsed JSON to data/parsed/{sha}.pre_validation.json
  */
@@ -15,6 +16,7 @@ export async function runStage2(
   orderNumber?: string
 ): Promise<{
   parsed: any;
+  allRuns: any[];
   filePath: string;
 }> {
   // Ensure extracted directory exists
@@ -27,19 +29,20 @@ export async function runStage2(
     // Read the OpenAI extracted text (preferred for parsing)
     const openaiText = await fs.readFile(openaiTextPath, "utf-8");
     
-    console.log(`Parsing text with OpenAI (${openaiText.length} characters)`);
+    console.log(`Running 3-parsing stability analysis (${openaiText.length} characters)`);
     if (orderNumber) {
       console.log(`Using order number from PyMuPDF: ${orderNumber}`);
     }
 
-    // Parse the text to JSON
-    const parsed = await parseTextToJSON(openaiText, orderNumber);
+    // Parse the text 3 times for stability analysis
+    const { primary, allRuns } = await parseTextToJSONWithStability(openaiText, orderNumber);
 
-    // Write the parsed JSON to file
-    await fs.writeFile(outputPath, JSON.stringify(parsed, null, 2), "utf-8");
+    // Write the primary parsed JSON to file
+    await fs.writeFile(outputPath, JSON.stringify(primary, null, 2), "utf-8");
 
     return {
-      parsed,
+      parsed: primary,
+      allRuns,
       filePath: outputPath
     };
   } catch (error) {
@@ -100,13 +103,14 @@ async function main() {
 
     console.log("\nStage 2 parsing completed!");
     console.log(`Parsed JSON written to: ${result.filePath}`);
+    console.log(`Stability analysis: ${result.allRuns.length} runs completed`);
+    
     // Display key extracted fields
     const parsed = result.parsed;
     console.log(`\nExtracted fields:`);
     console.log(`- Advertiser: ${parsed.advertiser_name || 'null'}`);
     console.log(`- Agency: ${parsed.agency_name || 'null'}`);
     console.log(`- Campaign Flight: ${parsed.campaign_total_flight?.start || 'null'} to ${parsed.campaign_total_flight?.end || 'null'}`);
-    console.log(`- Total Impressions: ${parsed.total_contracted_impressions?.toLocaleString() || 'null'}`);
     console.log(`- Total Spend: $${parsed.total_campaign_spend?.toLocaleString() || 'null'} ${parsed.currency || ''}`);
     console.log(`- PO Number: ${parsed.po_number || 'null'}`);
     console.log(`- Account Executive: ${parsed.account_executive_name || 'null'}`);

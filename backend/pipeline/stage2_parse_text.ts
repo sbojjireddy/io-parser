@@ -283,27 +283,6 @@ Core rules
   * After extracting flights, compute sum_all_units = sum(paid.units + av.units). If sum_all_units ≠ Order totals Impressions, keep the Order totals value for \`total_contracted_impressions\` and add a note in \`explanation.assumptions\`.
   * Added Value lines have CPM = 0 and Cost = 0.00, units > 0
 
-// --- MONTH BOUNDARY HARD GATE (strong) ---
-**UNIVERSAL MONTH BOUNDARY (HARD GATE)**
-  * A flight **must never** cross a calendar month.
-  * If any candidate flight spans two months (e.g., 9/29–10/05), you MUST split it:
-    - Part 1: 9/29–9/30
-    - Part 2: 10/01–10/05
-  * **Prorate** cost and units by active days within each split segment.
-    - units_segment = round(total_units * (days_segment / total_active_days))
-    - cost_segment  = round_to_cents(total_cost * (days_segment / total_active_days))
-  * After splitting, ensure sum(units_segment) == original units (adjust ±1 on the largest segment if needed); and sum(cost_segment) == original cost (cent-rounding on the largest segment if needed).
-
-**MONTH BOUNDARY SELF-CHECK (MANDATORY)**
-  * Before returning JSON, scan every flight:
-    - If start.month != end.month → **reject this draft**, split + prorate as above, and only then return.
-  * Include in explanation.summary: "Month boundary check: no flight crosses months; splits applied where needed."
-
-**Dark Weeks / Blackouts (HARD GATE)**
-  * If the IO specifies "Dark Weeks"/"Blackout dates", split affected spans to exclude dark days and **prorate by active-day proportion** (same prorating rule as above).
-  * Example (Oct budget 13,840.80; active days 1–5 and 20–31 → 17 days): per-day = 13,840.80/17; Oct 1–5 cost = per-day*5; Oct 20–31 cost = per-day*12.
-  * Provenance for each prorated flight must cite the dark-week note and specify "prorated by active days" in location_hint.
-
 **NEVER EMIT SPAN FLIGHTS WHEN MONTHLY COLUMNS EXIST (HARD GATE)**
   * If a placement row (e.g., P375Z4Z) has monthly headers (Sep 25, Oct 25, …), emit **one flight per month** clipped to that month and campaign window.
   * \`flights[].name\` must equal the month token (e.g., "Oct 25").
@@ -463,7 +442,7 @@ Few-shot clarification
 - ✅ Correct (weekly): If a "Booking Week" table shows "Sep 1 $5,000" and "Sep 8 $5,000" with CPM $8, emit two weekly flights with units 625,000 each, cost $5,000 each, rate_cpm 8, with provenance quoting the week tokens and CPM.`;
 
 /**
- * Parse extracted text using OpenAI with structured output
+ * Parse extracted text using OpenAI with structured output (single run)
  * - Promise-based (await only)
  * - Uses JSON schema validation
  * - Returns validated parsed object
@@ -514,7 +493,10 @@ ${text}`
       parsed.provenance.push({
         field: "po_number",
         quote: `Order Number: ${orderNumber}`,
-        location_hint: "extracted from PyMuPDF text extraction (override)"
+        location_hint: "extracted from PyMuPDF text extraction (override)",
+        find_confidence: 100,
+        value_confidence: 100,
+        rationale: "Order number provided by PyMuPDF extraction"
       });
     }
 
@@ -522,4 +504,82 @@ ${text}`
   } catch (error) {
     throw new Error(`Text parsing failed: ${(error as Error).message}`);
   }
+}
+
+/**
+ * Parse extracted text using OpenAI with structured output (3 runs for stability)
+ * - Promise-based (await only)
+ * - Uses JSON schema validation
+ * - Runs 3 times for stability analysis
+ * - Returns primary result and all runs for confidence scoring
+ */
+export async function parseTextToJSONWithStability(
+  text: string,
+  orderNumber?: string
+): Promise<{ primary: any; allRuns: any[] }> {
+  const allRuns: any[] = [];
+  
+  for (let i = 0; i < 3; i++) {
+    console.log(`Extraction run ${i + 1}/3...`);
+    
+    try {
+      // Use OpenAI with structured output
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: PARSING_PROMPT
+          },
+          {
+            role: "user",
+            content: `Parse this Tubi IO document. ${orderNumber ? `The order number is: ${orderNumber}` : ''}
+
+Here is the IO Document text:
+${text}`
+          }
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "tubi_io_parser",
+            schema: JSON_SCHEMA,
+            strict: true
+          }
+        },
+        temperature: 0
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error(`No content received from OpenAI on run ${i + 1}`);
+      }
+
+      const parsed = JSON.parse(content);
+      
+      // Override po_number with order number from PyMuPDF if available
+      if (orderNumber) {
+        parsed.po_number = orderNumber;
+        // Add provenance entry for the order number override
+        parsed.provenance.push({
+          field: "po_number",
+          quote: `Order Number: ${orderNumber}`,
+          location_hint: "extracted from PyMuPDF text extraction (override)",
+          find_confidence: 100,
+          value_confidence: 100,
+          rationale: "Order number provided by PyMuPDF extraction"
+        });
+      }
+
+      allRuns.push(parsed);
+    } catch (error) {
+      console.error(`JSON parsing failed on run ${i + 1}. Error:`, (error as Error).message);
+      throw new Error(`Failed to parse JSON response on run ${i + 1}: ${(error as Error).message}`);
+    }
+  }
+
+  // Use the first run as the primary result
+  const primary = allRuns[0];
+  
+  return { primary, allRuns };
 }

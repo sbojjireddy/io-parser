@@ -9,6 +9,7 @@
     "run:stage1": "tsx pipeline/run_stage1.ts",
     "run:stage2": "tsx pipeline/run_stage2.ts",
     "run:stage3": "tsx pipeline/run_stage3.ts",
+    "run:stage4": "tsx pipeline/run_stage4.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
