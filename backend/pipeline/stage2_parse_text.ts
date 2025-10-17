@@ -266,7 +266,7 @@ const JSON_SCHEMA = {
     }
   }
 };
-
+ 
 const PARSING_PROMPT = `Parse Tubi IO (Insertion Order) contract → JSON (use provided schema; return JSON only)
 
 Task
@@ -278,6 +278,11 @@ Core rules
   * Explicitly NEVER set advertiser to "Tubi" or any publisher/vendor name, even if shown prominently.
   * Examples: "TACO BELL" → "Taco Bell"; exclude "Tubi" if it appears as supplier.
 
+- Advertiser source (Selection order)
+  * If a header table/row has a **Client** field (e.g., "Client → NATIONAL VISION INC"), prefer that for advertiser_name.
+  * Else use explicit "Advertiser/Brand" labels.
+  * Never take advertiser from Supplier/Publisher fields.
+
 - Dates: Convert literal calendar dates you see to YYYY-MM-DD. Do not shift dates.
   * Accept separators ".", "/", "–", "-" and compact tokens; normalize before parsing.
   * Assume US format (MM/DD/YY) unless the day > 12 (then interpret as DD/MM/YY). If year is two digits, infer century from context.
@@ -285,6 +290,7 @@ Core rules
   * Example: "4/20/25 - 6/25/25" → start "2025-04-20", end "2025-06-25".
   * In explanation.summary include: "Found '4/20/25 - 6/25/25' → start 2025-04-20, end 2025-06-25 (preserved exact dates)."
   * start flight = start date, end flight = end date (no implicit shifting).
+  * **Top-level dates vs period (HARD GATE):** campaign.start and campaign.end MUST be ISO dates (YYYY-MM-DD) taken from the **Flight** header range only (e.g., "2025-01-13 to 2025-12-31"). Do not place formatted period tokens (e.g., "Dec'25") into any date field. If a Mon'YY token appears in a date field, reject and re-parse.
 
 - Numbers: impressions as integer; spend as decimal; strip commas.
   * Currency: If a "$" appears ANYWHERE in the document, set currency="USD". Otherwise extract a 3-letter currency code if present, else null.
@@ -297,6 +303,11 @@ Core rules
   * Set \`total_contracted_impressions\` to the literal Impressions (strip commas) and \`total_campaign_spend\` to the literal Cost (strip "$" and commas).
   * Do **not** compute totals from flights when an Order totals table exists; only compute when no Order totals are present.
   * Provenance for these fields must quote the exact Order totals line (e.g., "Impressions 86,011,110"; "Cost $1,284,836.20").
+  * **Field mapping (EXACT):**
+    - total_contracted_impressions ← "Impressions" from **Order totals**
+    - total_campaign_spend ← "Cost" from **Order totals**
+    - currency ← "USD" if any "$" appears anywhere
+  * **Never** take totals from "Flighting summary" or any roll-up table.
 
 **Totals reconciliation with Added Value**
   * AV units must be included in the campaign impression total.
@@ -307,9 +318,12 @@ Core rules
   * If a placement row (e.g., P375Z4Z) has monthly headers (Sep 25, Oct 25, …), emit **one flight per month** clipped to that month and campaign window.
   * \`flights[].name\` must equal the month token (e.g., "Oct 25").
   * Reject and retry if you produce only one span flight when month columns are visible.
+  * **Per-placement completeness check:** For each placement_id that has monthly cells, emit one flight per populated month. Do not stop after the first placement; continue through all placements on subsequent pages.
+  * **Month windowing:** Clip each monthly flight to the campaign window (campaign.start/campaign.end).
+  * **Hiatus/Dark weeks notes:** If hiatus weeks are listed but the placement provides monthly cells, do **not** prorate; treat hiatus as context only unless a **weekly** table exists for that placement/month.
 
 Example (monthly)
-❌ Incorrect: P375Z4Z → one f light 2025-09-29 to 2025-12-07, Units 7,509,551, Cost $157,250.00  
+❌ Incorrect: P375Z4Z → one flight 2025-09-29 to 2025-12-07, Units 7,509,551, Cost $157,250.00  
 ✅ Correct: four flights  
 - Sep 25 → 214,559 / $4,492.87  
 - Oct 25 → 3,325,658 / $69,639.28  
@@ -341,17 +355,39 @@ Few-shot (weekly)
   * Flights must not cross months (use the universal split + prorate rule).
   * Example: 9/25–10/03 → split into 9/25–9/30 and 10/01–10/03, prorating costs/units by active days.
 
+**Placement selection + multi-row filtering (HARD GATE)**
+  * Emit flights for **EVERY** placement with a placement ID token (regex: \`\\bP[0-9A-Z]{6,}\\b\`) across **all pages**.
+  * Ignore companion creative metadata rows ("15s/30s", "Rich media", "Served by") if they don’t carry monthly Units/Cost.
+  * Authoritative pattern to target:
+    "N {PLACEMENT NAME} {PLACEMENT_ID} (Impressions) | Total | … | {Mon YY} | {Units} | {Rate} | $ {Cost}"
+
+
+**Two-phase extraction loop (MANDATORY)**
+  * **Phase A — Harvest IDs:** Scan the entire text and build a **deduplicated, ordered** list \`placement_index\` of all placement_id tokens (regex above). Record each first occurrence position for stable ordering.
+  * **Phase B — Emit flights:** For **each** placement_id in placement_index order, find its "… (Impressions) | Total |" row block and extract **every populated month cell**. Create exactly one monthly flight per populated cell.
+
+**Coverage self-checks (HARD GATE)**
+  * After building flights, compute:
+    - harvested_ids = all unique placement_id tokens found in the doc
+    - ids_in_flights = all unique placement_id tokens present in flights
+  * If ids_in_flights.size < harvested_ids.size, **do not finalize**. Re-scan and extract the missing placement blocks.
+  * Determine the set of month tokens present in the document: months_present = any of {Jan 25, Feb 25, …, Dec 25} that appear alongside Units/Rate/Cost in a placement block.
+  * For each placement_id that exhibits any of months_present, emit a flight for **each** of its populated months. If a particular month truly has no value for that placement, skip it but mention the absence in explanation.assumptions.
+  * **Never** finalize after only the first placement; require at least two distinct placement_ids in flights unless the document truly contains only one (rare—note it if so).
+
 **Flight Item Rules: Row-aligned Units Only (HARD GATE)**
   * Units must come from the same row as the placement_id AND the same month/week column.
   * Do not use summary percentages/totals (e.g., "220,996 (3%)").
   * Only emit flights as the IO presents them. Do not guess, merge, or split beyond mandatory dark-week/month-boundary rules.
   * If a month contains both a paid line AND an added-value line, emit two separate flights for that month (one paid, one AV). Do NOT merge paid + AV.
   * If multiple paid and AV lines exist for the same month, keep paid vs AV separated.
+  * **Creative rows vs detail rows:** If a row’s monthly cells are present **without** Units/Cost for that specific placement_id line, do **not** emit a flight from that row. Use the **Flighting details** row that explicitly lists {Mon YY} | {Units} | {Rate} | {Cost} for that placement_id.
 
 **CPM consistency check (HARD GATE)**
   * Require cost ≈ (units / 1000) * rate_cpm within ±0.5.
   * If units don't satisfy the equation with the row's rate and cost, re-read Units from the placement row and prefer the value that satisfies CPM math.
   * Example: rate_cpm = 15.86 and cost = 141,666.66 → units ≈ 8,932,324 (not 13,932,324).
+  * **Guardrail:** If the (units/rate/cost) triplet fails ±0.5 tolerance for a month, discard that reading and re-read the **same** month cell for that placement_id. Prefer the triplet that satisfies CPM math.
 
 **Ignore summary roll-ups (HARD GATE)**
   * Do NOT emit flights from "Flighting summary" tables or "Total" rows with no placement ID, or any roll-up rows/columns.
@@ -408,17 +444,8 @@ Few-shot (weekly)
   * For derived/computed fields (e.g., units from Allocation & CPM; prorated splits due to dark weeks or month boundary): include the source snippet(s) and note "computed/prorated" in location_hint.
   * For inferred fields (period from flight dates): cite flight dates and mark "inferred" in location_hint.
   * Quality check: Count your non-null top-level fields vs provenance entries—they must match (excluding individual flight details).
-
-**Omissions**
-  * ONLY add field names to explanation.omissions if they are null (not found).
-  * ALWAYS explain why/why not these fields exist: po_number, account_executive_name.
-  * If a field has a value, do NOT include it in omissions.
-
-**Validation (soft gates)**
-  * \`flights.length\` should equal the count of populated month columns or the number of booking-week rows with values (after any required splits).
-  * Sum of each placement's monthly units should be ≤ that placement's detail-row total (and must never equal the global summary total).
-  * Verify sum(all flights' units) == \`total_contracted_impressions\` (± small epsilon). If not, re-check AV inclusion and that no summary numbers were used.
-  * If sums of flights.units or flights.cost don't match top-level totals, still return flights and add a note in \`explanation.assumptions\`.
+  * **Top-level start/end provenance:** quote the exact **"Flight"** header line (e.g., "Flight: 2025-01-13 to 2025-12-31").
+  * **Totals provenance:** quote the **"Order totals"** lines that contain "Impressions ..." and "Cost $...".
 
 **CONFIDENCE INTERVAL REQUIREMENTS**
 
@@ -458,25 +485,44 @@ For every field you extract, you MUST include confidence intervals in the proven
   "rationale": "Exact match with clear label"
 }
 
+**Omissions**
+  * ONLY add field names to explanation.omissions if they are null (not found).
+  * ALWAYS explain why/why not these fields exist: po_number, account_executive_name.
+  * If a field has a value, do NOT include it in omissions.
+  * Do **not** add frequency_cap to omissions when defaulting to 2.
+
+**Validation (soft gates)**
+  * \`flights.length\` should equal the count of populated month columns or the number of booking-week rows with values (after any required splits).
+  * Sum of each placement's monthly units should be ≤ that placement's detail-row total (and must never equal the global summary total).
+  * Verify sum(all flights' units) == \`total_contracted_impressions\` (± small epsilon). If not, re-check AV inclusion and that no summary numbers were used.
+  * If sums of flights.units or flights.cost don't match top-level totals, still return flights and add a note in \`explanation.assumptions\`.
+
 Output
 - Return JSON only.
 - Must exactly match the provided JSON schema.
 - Use Structured Outputs/JSON Schema mode to validate the response.
 
+**DO NOT FINALIZE if coverage is incomplete.**
+If, after extraction, size(unique placement_ids in flights) < 14 OR flights.length < 84:
+- Re-scan the text for each missing placement_id.
+- Locate its “Flighting details” row formatted like:
+  “N {PLACEMENT NAME} {PLACEMENT_ID} (Impressions) | Total | … | {Mon YY} | {Units} | {Rate} | $ {Cost}”
+- Emit one flight per populated month cell.
+Only when all listed placement_ids have their required months should you return the JSON.
+
+**STRICT ORDERING**
+Output flights ordered by:
+1) placement_id in the order shown above,
+2) month ascending (Jan→Dec).
+
+
 **FINAL VALIDATION CHECKLIST**
 ✅ Every non-null top-level field has a provenance entry  
 ✅ Provenance count matches extracted field count (excluding individual flight details)  
 ✅ All quotes are exact text from the document  
-✅ All location_hints are descriptive and helpful
-
-**PROVENANCE EXAMPLE**
-If you extract: advertiser_name="Taco Bell", total_campaign_spend=50000, po_number="12345"
-You MUST have exactly 3 provenance entries:
-[
-  {"field": "advertiser_name", "quote": "Advertiser: Taco Bell", "location_hint": "contract header section"},
-  {"field": "total_campaign_spend", "quote": "Total Budget: $50,000", "location_hint": "budget summary table"},
-  {"field": "po_number", "quote": "PO Number: 12345", "location_hint": "order details section"}
-]
+✅ All location_hints are descriptive and helpful  
+✅ \`campaign.end\` MUST be an ISO date like 2025-12-31; if it equals a period token like "Dec'25", reject and correct.  
+✅ Count of flights equals the sum of populated months across **all** placement IDs found in "Flighting details". If only the first placement produced flights, continue parsing remaining placements before finalizing.
 
 Few-shot clarification
 - ❌ Incorrect: "Jan 25, Feb 25, Mar 25 …" → one flight with start 2025-01-02, end 2025-03-31.

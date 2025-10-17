@@ -2,8 +2,44 @@ import { useState } from 'react';
 import type { IOData } from '../types';
 import './MainPage.css';
 
+interface SimplifiedData {
+  fields: Array<{
+    field: string;
+    value: any;
+    confidence: number;
+    status: 'use' | 'review' | 'reject';
+    needs_review: boolean;
+    reason?: string;
+  }>;
+  flights: Array<{
+    index: number | null;
+    placement_id: string | null;
+    name: string | null;
+    start: string | null;
+    end: string | null;
+    units: number | null;
+    unit_type: string | null;
+    rate_cpm: number | null;
+    cost_method: string | null;
+    cost: number | null;
+    currency: string | null;
+    confidence: number;
+    status: 'use' | 'review' | 'reject';
+    needs_review: boolean;
+    reason?: string;
+  }>;
+  overall_confidence: number;
+  needs_review: boolean;
+  summary: {
+    total_fields: number;
+    use_count: number;
+    review_count: number;
+    reject_count: number;
+  };
+}
+
 interface MainPageProps {
-  onExtractionComplete: (data: IOData) => void;
+  onExtractionComplete: (fullData: IOData, simplified: SimplifiedData) => void;
   onExtractionError: (error: string) => void;
 }
 
@@ -73,7 +109,7 @@ const MainPage: React.FC<MainPageProps> = ({ onExtractionComplete, onExtractionE
       }
 
       setResult(data);
-      onExtractionComplete(data.finalData);
+      onExtractionComplete(data.fullData, data.data);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Upload failed';
       setError(errorMessage);

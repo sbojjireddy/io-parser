@@ -61,8 +61,6 @@ app.get('/', (req, res) => {
 
 // Import pipeline functions
 import { runStage1 } from '../pipeline/run_stage1.js';
-import { runStage2 } from '../pipeline/run_stage2.js';
-import { runStage3 } from '../pipeline/run_stage3.js';
 import { runStage4 } from '../pipeline/run_stage4.js';
 
 // File upload route
@@ -93,11 +91,11 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     // Upload to OpenAI if not cached
     if (!openaiFileId) {
       try {
-        // Write file to temp location for OpenAI upload (like Python's open("file", "rb"))
+        // Write file to temp location for OpenAI upload
         const tempFilePath = path.join('data/raw', `temp_${sha256}.pdf`);
         fs.writeFileSync(tempFilePath, req.file.buffer);
         
-        // Upload using file path (like Python approach)
+        // Upload using file path
         const file_obj = await openai.files.create({
           file: fs.createReadStream(tempFilePath) as any,
           purpose: "user_data"
@@ -206,18 +204,38 @@ app.post('/api/process-pipeline', upload.single('file'), async (req, res) => {
     }
     
     // Run Stage 1: Text Extraction
-    console.log('Running Stage 1: Text Extraction...');
+    console.log('\n========================================');
+    console.log('STAGE 1: TEXT EXTRACTION');
+    console.log('========================================');
+    const stage1StartTime = Date.now();
     const stage1Result = await runStage1(sha256, filePath, openaiFileId);
+    const stage1Time = ((Date.now() - stage1StartTime) / 1000).toFixed(2);
+    console.log('\nSTAGE 1 COMPLETE');
+    console.log(`   Time: ${stage1Time}s`);
+    console.log(`   OpenAI text: ${stage1Result.openai.text.length} characters`);
+    console.log(`   PyMuPDF text: ${stage1Result.pymupdf.text.length} characters`);
+    console.log(`   Order number: ${stage1Result.pymupdf.orderNumber?.order_number || 'Not found'}`);
     
     // Run Stage 4: Complete Pipeline (includes Stage 2 + Stage 3 + Confidence)
-    console.log('Running Stage 4: Complete Pipeline (Parsing + Flight Logic + Confidence)...');
+    console.log('\n========================================');
+    console.log('STAGE 4: PARSING & CONFIDENCE');
+    console.log('   (includes Stage 2: Parse, Stage 3: Flight Logic)');
+    console.log('========================================');
+    const stage4StartTime = Date.now();
     const stage4Result = await runStage4(
       sha256,
       stage1Result.openai.filePath,
       stage1Result.pymupdf.orderNumber?.order_number
     );
+    const stage4Time = ((Date.now() - stage4StartTime) / 1000).toFixed(2);
+    console.log('\nSTAGE 4 COMPLETE');
+    console.log(`   Time: ${stage4Time}s`);
+    console.log(`   Overall confidence: ${(stage4Result.confidenceReport.overall_score * 100).toFixed(1)}%`);
+    console.log(`   Fields: ${stage4Result.confidenceReport.summary.use_count} use, ${stage4Result.confidenceReport.summary.review_count} review, ${stage4Result.confidenceReport.summary.reject_count} reject`);
     
-    console.log('Pipeline completed successfully!');
+    console.log('\n========================================');
+    console.log('PIPELINE COMPLETE');
+    console.log('========================================');
     
     res.json({
       success: true,
@@ -242,13 +260,49 @@ app.post('/api/process-pipeline', upload.single('file'), async (req, res) => {
           flights: stage4Result.finalData.flights?.length || 0
         }
       },
-      finalData: stage4Result.finalData
+      // Simplified format (recommended for most use cases)
+      data: stage4Result.simplifiedData,
+      // Full format with all details (for debugging/advanced use)
+      fullData: stage4Result.finalData
     });
     
   } catch (error) {
     console.error('Pipeline processing error:', (error as Error).message);
     res.status(500).json({ 
       error: 'Pipeline processing failed', 
+      details: (error as Error).message 
+    });
+  }
+});
+
+// Push to AOS endpoint (super chill - just logs and returns success)
+app.post('/api/push-to-aos', express.json(), (req, res) => {
+  try {
+    console.log('\n========================================');
+    console.log('🚀 PUSH TO AOS REQUEST');
+    console.log('========================================');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('\nPayload received:');
+    console.log(JSON.stringify(req.body, null, 2));
+    console.log('\n========================================');
+    
+    // Simulate processing time
+    setTimeout(() => {
+      res.json({
+        success: true,
+        message: 'Successfully pushed to AOS',
+        timestamp: new Date().toISOString(),
+        recordsProcessed: {
+          campaign: 1,
+          flights: req.body.flights?.length || 0
+        }
+      });
+    }, 500);
+    
+  } catch (error) {
+    console.error('Push to AOS error:', (error as Error).message);
+    res.status(500).json({ 
+      error: 'Push to AOS failed', 
       details: (error as Error).message 
     });
   }

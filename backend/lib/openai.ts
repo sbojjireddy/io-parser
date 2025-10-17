@@ -15,4 +15,8 @@ if (!process.env.OPENAI_API_KEY) {
   throw new Error("Missing OPENAI_API_KEY");
 }
 
-export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+export const openai = new OpenAI({ 
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 30 * 60 * 1000, // 30 minutes
+  maxRetries: 0 // Don't retry, just wait
+});

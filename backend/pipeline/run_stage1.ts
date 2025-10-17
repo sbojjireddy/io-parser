@@ -1,7 +1,12 @@
 import path from "node:path";
 import fs from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { existsSync } from "node:fs";
 import { extractOpenAIText } from "./stage1_extract_openai.js";
 import { extractPyMuPDFText } from "./stage1_extract_pymupdf.js";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Run both extractors in parallel for a given PDF.
@@ -24,32 +29,143 @@ export async function runStage1(
   const openaiOutputPath = path.join(extractedDir, `${sha}.openai.txt`);
   const pymupdfOutputPath = path.join(extractedDir, `${sha}.pymu.txt`);
 
-  // Run both extractors in parallel
-  const [openaiResult, pymupdfResult] = await Promise.all([
-    // OpenAI extraction
-    extractOpenAIText(openaiFileId, extractionPromptPath).then(text => ({
-      text,
-      filePath: openaiOutputPath
-    })),
+  // Check if extracted files already exist
+  const openaiExists = existsSync(openaiOutputPath);
+  const pymupdfExists = existsSync(pymupdfOutputPath);
+
+  let openaiResult: { text: string; filePath: string };
+  let pymupdfResult: { text: string; filePath: string };
+
+  if (openaiExists && pymupdfExists) {
+    console.log('Using cached extracted text files...');
+    // Read from existing files
+    const [openaiText, pymupdfText] = await Promise.all([
+      fs.readFile(openaiOutputPath, "utf-8"),
+      fs.readFile(pymupdfOutputPath, "utf-8")
+    ]);
     
-    // PyMuPDF extraction
-    extractPyMuPDFText(pdfPath, sha).then(result => ({
-      text: result.text,
-      filePath: pymupdfOutputPath,
-      orderNumber: result.orderNumber
-    }))
-  ]);
+    openaiResult = { text: openaiText, filePath: openaiOutputPath };
+    pymupdfResult = { text: pymupdfText, filePath: pymupdfOutputPath };
+    
+    console.log('Loaded cached extractions');
+    console.log(`   OpenAI: ${openaiText.length} characters`);
+    console.log(`   PyMuPDF: ${pymupdfText.length} characters`);
+  } else {
+    // Run extractors for missing files
+    const extractionTasks = [];
+    
+    if (!openaiExists) {
+      console.log('Running OpenAI extraction...');
+      extractionTasks.push(
+        extractOpenAIText(openaiFileId, extractionPromptPath).then(async text => {
+          await fs.writeFile(openaiOutputPath, text, "utf-8");
+          return { text, filePath: openaiOutputPath };
+        })
+      );
+    } else {
+      console.log('Using cached OpenAI extraction...');
+      extractionTasks.push(
+        fs.readFile(openaiOutputPath, "utf-8").then(text => ({
+          text,
+          filePath: openaiOutputPath
+        }))
+      );
+    }
+    
+    if (!pymupdfExists) {
+      console.log('Running PyMuPDF extraction...');
+      extractionTasks.push(
+        extractPyMuPDFText(pdfPath, sha).then(result => ({
+          text: result.text,
+          filePath: pymupdfOutputPath
+        }))
+      );
+    } else {
+      console.log('Using cached PyMuPDF extraction...');
+      extractionTasks.push(
+        fs.readFile(pymupdfOutputPath, "utf-8").then(text => ({
+          text,
+          filePath: pymupdfOutputPath
+        }))
+      );
+    }
+    
+    // Ensure we always have two extraction results, even if one is missing
+    const results = await Promise.all(extractionTasks);
+    openaiResult = results[0]!;
+    pymupdfResult = results[1]!;
+  }
 
-  // Write OpenAI results to file
-  await fs.writeFile(openaiOutputPath, openaiResult.text, "utf-8");
-
-  // PyMuPDF results are already written by the extractor
-  // Just verify the file exists
-  await fs.access(pymupdfOutputPath);
+  // Extract order number from BOTH PyMuPDF and OpenAI extracts, then pick the best
+  console.log('\nExtracting order numbers from both sources...');
+  
+  const pythonPath = process.env.PYTHON_PATH || 
+    (existsSync(path.join(process.cwd(), "..", ".venv", "bin", "python"))
+      ? path.join(process.cwd(), "..", ".venv", "bin", "python")
+      : "python3");
+  
+  const orderNumberScript = path.join(process.cwd(), "..", "python", "extract_order_number.py");
+  
+  let pymupdfOrderNumber: any = undefined;
+  let openaiOrderNumber: any = undefined;
+  
+  try {
+    // Extract from PyMuPDF
+    const { stdout: pymupdfStdout } = await execFileAsync(pythonPath, [orderNumberScript, pymupdfOutputPath]);
+    pymupdfOrderNumber = JSON.parse(pymupdfStdout);
+    console.log('   PyMuPDF:', pymupdfOrderNumber.ok ? pymupdfOrderNumber.order_number : 'Not found');
+    if (pymupdfOrderNumber.scores) {
+      console.log('   PyMuPDF candidates:', Object.keys(pymupdfOrderNumber.scores).join(', '));
+    }
+  } catch (error) {
+    console.log('   PyMuPDF order extraction failed');
+  }
+  
+  try {
+    // Extract from OpenAI
+    const { stdout: openaiStdout } = await execFileAsync(pythonPath, [orderNumberScript, openaiOutputPath]);
+    openaiOrderNumber = JSON.parse(openaiStdout);
+    console.log('   OpenAI:', openaiOrderNumber.ok ? openaiOrderNumber.order_number : 'Not found');
+    if (openaiOrderNumber.scores) {
+      console.log('   OpenAI candidates:', Object.keys(openaiOrderNumber.scores).join(', '));
+    }
+  } catch (error) {
+    console.log('   OpenAI order extraction failed');
+  }
+  
+  // Pick the best order number between the two sources
+  let finalOrderNumber = undefined;
+  
+  if (pymupdfOrderNumber?.ok && openaiOrderNumber?.ok) {
+    // Both found order numbers - pick the one with higher score
+    const pymupdfScore = pymupdfOrderNumber.scores?.[pymupdfOrderNumber.order_number] || 0;
+    const openaiScore = openaiOrderNumber.scores?.[openaiOrderNumber.order_number] || 0;
+    
+    if (pymupdfScore >= openaiScore) {
+      finalOrderNumber = pymupdfOrderNumber;
+      console.log(`Using PyMuPDF order number (score: ${pymupdfScore}): ${pymupdfOrderNumber.order_number}`);
+    } else {
+      finalOrderNumber = openaiOrderNumber;
+      console.log(`Using OpenAI order number (score: ${openaiScore}): ${openaiOrderNumber.order_number}`);
+    }
+  } else if (pymupdfOrderNumber?.ok) {
+    // Only PyMuPDF found it
+    finalOrderNumber = pymupdfOrderNumber;
+    console.log(`Using PyMuPDF order number: ${pymupdfOrderNumber.order_number}`);
+  } else if (openaiOrderNumber?.ok) {
+    // Only OpenAI found it
+    finalOrderNumber = openaiOrderNumber;
+    console.log(`Using OpenAI order number: ${openaiOrderNumber.order_number}`);
+  } else {
+    console.log('No order number found in either source');
+  }
 
   return {
     openai: openaiResult,
-    pymupdf: pymupdfResult
+    pymupdf: {
+      ...pymupdfResult,
+      orderNumber: finalOrderNumber
+    }
   };
 }
 

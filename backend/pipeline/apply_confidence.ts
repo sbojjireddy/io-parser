@@ -928,6 +928,40 @@ function aggregateConfidence(
   multiRunValues?: any[],
   llmConfidence?: { find_confidence: number; value_confidence: number }
 ): FieldConfidence {
+  // HARD GATE: Check for critical validation failures
+  // If any component related to parsing errors (totals_match, impressions_match, budget_match) has score 0.0, force reject
+  const hasCriticalFailure = components.some(comp => {
+    const isCriticalComponent = comp.name.includes('match') || 
+                                comp.name.includes('triangle') ||
+                                comp.name === 'total_impressions_match' ||
+                                comp.name === 'totals_match_sums';
+    return isCriticalComponent && comp.score === 0.0;
+  });
+
+  if (hasCriticalFailure) {
+    // Force reject on critical validation failures (parsing errors)
+    const criticalFailureComponent = components.find(comp => 
+      (comp.name.includes('match') || comp.name.includes('triangle') || 
+       comp.name === 'total_impressions_match' || comp.name === 'totals_match_sums') && 
+      comp.score === 0.0
+    );
+    
+    return {
+      field,
+      confidence_score: 0.0,
+      status: 'reject',
+      components: [
+        ...components,
+        {
+          name: 'critical_failure_gate',
+          score: 0.0,
+          notes: `HARD GATE: Critical validation failure detected - ${criticalFailureComponent?.notes || 'parsing error detected'}`
+        }
+      ],
+      values_across_runs: multiRunValues || []
+    };
+  }
+
   const totalScore = components.reduce((sum, comp) => sum + comp.score, 0);
   const validationScore = totalScore / components.length;
 

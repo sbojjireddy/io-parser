@@ -6,24 +6,16 @@ import { existsSync } from "node:fs";
 
 const execFileAsync = promisify(execFile);
 
-export interface OrderNumberResult {
-  ok: boolean;
-  order_number?: string;
-  provenance?: string;
-  all_candidates?: string[];
-}
-
 /**
- * Extract text from PDF using PyMuPDF and optionally extract order number.
+ * Extract text from PDF using PyMuPDF.
  * - Promise-based (await only).
  * - Runs Python script to extract text.
- * - Calls extract_order_number.py if present.
- * - Returns order number extraction result.
+ * - Order number extraction is done separately in run_stage1.ts
  */
 export async function extractPyMuPDFText(
   pdfPath: string,
   sha: string
-): Promise<{ text: string; orderNumber?: OrderNumberResult }> {
+): Promise<{ text: string }> {
   // Ensure extracted directory exists
   const extractedDir = path.join(process.cwd(), "data", "extracted");
   await fs.mkdir(extractedDir, { recursive: true });
@@ -33,6 +25,10 @@ export async function extractPyMuPDFText(
   const outputPath = path.join(extractedDir, `${sha}.pymu.txt`);
 
   try {
+    console.log('Running PyMuPDF text extraction...');
+    console.log('   Script:', pythonScript);
+    console.log('   PDF:', pdfPath);
+    
     // Run the Python script (use venv in dev, system python in prod) 
     // TODO: definitely need to change this when we have a prod environment
     const pythonPath = process.env.PYTHON_PATH || 
@@ -41,26 +37,14 @@ export async function extractPyMuPDFText(
         : "python3");
     const { stdout } = await execFileAsync(pythonPath, [pythonScript, "--pdf", pdfPath]);
     
+    console.log('PyMuPDF extraction complete');
+    console.log('   Extracted text length:', stdout.length, 'characters');
+    
     // Write the extracted text to file
     await fs.writeFile(outputPath, stdout, "utf-8");
 
-    // Try to extract order number if the script exists
-    let orderNumber: OrderNumberResult | undefined;
-    const orderNumberScript = path.join(process.cwd(), "..", "python", "extract_order_number.py");
-    
-    try {
-      await fs.access(orderNumberScript);
-      // Script exists, run it
-      const { stdout: orderStdout } = await execFileAsync(pythonPath, [orderNumberScript, outputPath]);
-      orderNumber = JSON.parse(orderStdout);
-    } catch (error) {
-      // Script doesn't exist or failed, skip order number extraction
-      console.log("Order number extraction script not found or failed, skipping...");
-    }
-
     return {
-      text: stdout,
-      ...(orderNumber && { orderNumber })
+      text: stdout
     };
   } catch (error) {
     throw new Error(`PyMuPDF extraction failed: ${(error as Error).message}`);

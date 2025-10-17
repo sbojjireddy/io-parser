@@ -5,6 +5,171 @@ import { applyFlightLogic } from "./apply_flight_logic.js";
 import { calculateConfidence } from "./apply_confidence.js";
 import type { IOData, FlightItem, FieldConfidence } from "./types.js";
 
+// Simplified output types (exported for use in API/frontend)
+export interface SimplifiedField {
+  field: string;
+  value: any;
+  confidence: number;
+  status: 'use' | 'review' | 'reject';
+  needs_review: boolean;
+  reason?: string;
+}
+
+export interface SimplifiedFlight {
+  index: number | null;
+  placement_id: string | null;
+  name: string | null;
+  start: string | null;
+  end: string | null;
+  units: number | null;
+  unit_type: string | null;
+  rate_cpm: number | null;
+  cost_method: string | null;
+  cost: number | null;
+  currency: string | null;
+  confidence: number;
+  status: 'use' | 'review' | 'reject';
+  needs_review: boolean;
+  reason?: string;
+}
+
+export interface SimplifiedOutput {
+  fields: SimplifiedField[];
+  flights: SimplifiedFlight[];
+  overall_confidence: number;
+  needs_review: boolean;
+  summary: {
+    total_fields: number;
+    use_count: number;
+    review_count: number;
+    reject_count: number;
+  };
+}
+
+/**
+ * Transform complex IOData with confidence into simplified, flat structure
+ */
+function transformToSimplifiedOutput(data: IOData): SimplifiedOutput {
+  const fields: SimplifiedField[] = [];
+  const confidenceReport = data.confidence!;
+  
+  // Helper to get confidence for a field
+  const getFieldConfidence = (fieldName: string): FieldConfidence | undefined => {
+    return confidenceReport.field_confidences.find(fc => fc.field === fieldName);
+  };
+  
+  // Helper to extract reason from components
+  const extractReason = (fieldConf: FieldConfidence | undefined): string | undefined => {
+    if (!fieldConf) return undefined;
+    
+    // Look for critical failure or low-scoring components
+    const criticalComponent = fieldConf.components.find(c => 
+      c.name === 'critical_failure_gate' || 
+      (c.score === 0.0 && (c.name.includes('match') || c.name.includes('triangle')))
+    );
+    
+    if (criticalComponent) {
+      return criticalComponent.notes;
+    }
+    
+    // For review status, find the weakest component
+    if (fieldConf.status === 'review') {
+      const weakComponent = fieldConf.components
+        .filter(c => c.name !== 'confidence_merge')
+        .sort((a, b) => a.score - b.score)[0];
+      
+      if (weakComponent && weakComponent.score < 0.7) {
+        return weakComponent.notes;
+      }
+    }
+    
+    return undefined;
+  };
+  
+  // Map top-level fields
+  const fieldMappings = [
+    { field: 'advertiser_name', value: data.advertiser_name },
+    { field: 'agency_name', value: data.agency_name },
+    { field: 'campaign_start_date', value: data.campaign_total_flight?.start },
+    { field: 'campaign_end_date', value: data.campaign_total_flight?.end },
+    { field: 'total_contracted_impressions', value: data.total_contracted_impressions },
+    { field: 'total_campaign_spend', value: data.total_campaign_spend },
+    { field: 'currency', value: data.currency },
+    { field: 'po_number', value: data.po_number },
+    { field: 'account_executive_name', value: data.account_executive_name },
+    { field: 'frequency_cap', value: data.frequency_cap },
+    { field: 'period_start', value: data.period?.start },
+    { field: 'period_end', value: data.period?.end }
+  ];
+  
+  fieldMappings.forEach(({ field, value }) => {
+    // Special handling for nested fields
+    let confFieldName = field;
+    if (field === 'campaign_start_date') confFieldName = 'start_date';
+    if (field === 'campaign_end_date') confFieldName = 'end_date';
+    
+    const fieldConf = getFieldConfidence(confFieldName);
+    
+    if (fieldConf || value !== null) {
+      const reason = extractReason(fieldConf);
+      const fieldData: SimplifiedField = {
+        field,
+        value,
+        confidence: fieldConf?.confidence_score ?? 0.5,
+        status: fieldConf?.status ?? 'review',
+        needs_review: (fieldConf?.status === 'review' || fieldConf?.status === 'reject') ?? true
+      };
+      if (reason) fieldData.reason = reason;
+      fields.push(fieldData);
+    }
+  });
+  
+  // Map flights
+  const flights: SimplifiedFlight[] = data.flights.map((flight, index) => {
+    const flightFieldName = `flight_${index + 1}`;
+    const flightConf = getFieldConfidence(flightFieldName);
+    const reason = extractReason(flightConf);
+    
+    const flightData: SimplifiedFlight = {
+      index: flight.index,
+      placement_id: flight.placement_id,
+      name: flight.name,
+      start: flight.start,
+      end: flight.end,
+      units: flight.units,
+      unit_type: flight.unit_type,
+      rate_cpm: flight.rate_cpm,
+      cost_method: flight.cost_method,
+      cost: flight.cost,
+      currency: flight.currency,
+      confidence: flightConf?.confidence_score ?? 0.8,
+      status: flightConf?.status ?? 'use',
+      needs_review: (flightConf?.status === 'review' || flightConf?.status === 'reject') ?? false
+    };
+    if (reason) flightData.reason = reason;
+    return flightData;
+  });
+  
+  // Calculate summary
+  const allStatuses = [...fields.map(f => f.status), ...flights.map(f => f.status)];
+  const useCount = allStatuses.filter(s => s === 'use').length;
+  const reviewCount = allStatuses.filter(s => s === 'review').length;
+  const rejectCount = allStatuses.filter(s => s === 'reject').length;
+  
+  return {
+    fields,
+    flights,
+    overall_confidence: confidenceReport.overall_score,
+    needs_review: reviewCount > 0 || rejectCount > 0,
+    summary: {
+      total_fields: fields.length + flights.length,
+      use_count: useCount,
+      review_count: reviewCount,
+      reject_count: rejectCount
+    }
+  };
+}
+
 /**
  * Run stage 4 processing: apply confidence scoring and save final JSON
  * - Promise-based (await only)
@@ -18,14 +183,17 @@ export async function runStage4(
   orderNumber?: string
 ): Promise<{
   finalData: IOData;
+  simplifiedData: SimplifiedOutput;
   confidenceReport: any;
   filePath: string;
+  simplifiedFilePath: string;
 }> {
   // Ensure combined directory exists
   const combinedDir = path.join(process.cwd(), "data", "combined");
   await fs.mkdir(combinedDir, { recursive: true });
 
   const outputPath = path.join(combinedDir, `${sha}.json`);
+  const simplifiedOutputPath = path.join(combinedDir, `${sha}.simple.json`);
 
   try {
     // Read the OpenAI extracted text
@@ -106,13 +274,25 @@ export async function runStage4(
       confidence: confidenceReport
     };
 
-    // Write the final JSON to file
-    await fs.writeFile(outputPath, JSON.stringify(finalData, null, 2), "utf-8");
+    // Generate simplified output
+    console.log('Generating simplified output format...');
+    const simplifiedData = transformToSimplifiedOutput(finalData);
+
+    // Write both formats to files
+    await Promise.all([
+      fs.writeFile(outputPath, JSON.stringify(finalData, null, 2), "utf-8"),
+      fs.writeFile(simplifiedOutputPath, JSON.stringify(simplifiedData, null, 2), "utf-8")
+    ]);
+
+    console.log(`Saved full format to: ${outputPath}`);
+    console.log(`Saved simplified format to: ${simplifiedOutputPath}`);
 
     return {
       finalData,
+      simplifiedData,
       confidenceReport,
-      filePath: outputPath
+      filePath: outputPath,
+      simplifiedFilePath: simplifiedOutputPath
     };
   } catch (error) {
     throw new Error(`Stage 4 processing failed: ${(error as Error).message}`);

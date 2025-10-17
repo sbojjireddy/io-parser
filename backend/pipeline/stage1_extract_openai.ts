@@ -32,7 +32,10 @@ RULES:
       ? await fs.readFile(extractionPromptPath, "utf-8")
       : defaultPrompt;
 
-  // Use the Responses API as specified
+  console.log('Calling OpenAI Responses API for text extraction...');
+  console.log('   Model: gpt-4.1');
+  console.log('   File ID:', fileId);
+  
   const response = await openai.responses.create({
     model: "gpt-4.1",
     temperature: 0,
@@ -46,5 +49,8 @@ RULES:
   });
 
   const text = (response as any).output_text ?? "";
+  console.log('OpenAI text extraction complete');
+  console.log('   Extracted text length:', text.length, 'characters');
+  
   return String(text).trim();
 }
