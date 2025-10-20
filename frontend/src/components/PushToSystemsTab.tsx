@@ -23,6 +23,8 @@ export default function PushToSystemsTab({
   const [pushStatus, setPushStatus] = useState<'idle' | 'pushing' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isPushed, setIsPushed] = useState(false);
+  const [selectedFlights, setSelectedFlights] = useState<Set<number>>(new Set());
+  const [bulkProduct, setBulkProduct] = useState('Choose Product');
 
   // AOS Configuration
   const [aosConfig, setAosConfig] = useState({
@@ -159,6 +161,59 @@ export default function PushToSystemsTab({
   const handleDeleteFlight = (index: number) => {
     if (confirm('Are you sure you want to delete this flight?')) {
       setEditedFlights(flights => flights.filter((_, i) => i !== index));
+      setSelectedFlights(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(index);
+        return newSet;
+      });
+    }
+  };
+
+  const handleSelectAll = () => {
+    if (selectedFlights.size === editedFlights.length) {
+      setSelectedFlights(new Set());
+    } else {
+      setSelectedFlights(new Set(editedFlights.map((_, i) => i)));
+    }
+  };
+
+  const handleSelectFlight = (index: number) => {
+    setSelectedFlights(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
+
+  const handleBulkAssignProduct = () => {
+    if (selectedFlights.size === 0 || bulkProduct === 'Choose Product') {
+      alert('Please select flights and choose a product');
+      return;
+    }
+
+    setEditedFlights(flights =>
+      flights.map((f, i) =>
+        selectedFlights.has(i)
+          ? { ...f, product: bulkProduct, isEdited: true }
+          : f
+      )
+    );
+    alert(`Product assigned to ${selectedFlights.size} flight(s)`);
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedFlights.size === 0) {
+      alert('Please select flights to delete');
+      return;
+    }
+
+    if (confirm(`Are you sure you want to delete ${selectedFlights.size} flight(s)?`)) {
+      setEditedFlights(flights => flights.filter((_, i) => !selectedFlights.has(i)));
+      setSelectedFlights(new Set());
     }
   };
 
@@ -422,10 +477,44 @@ export default function PushToSystemsTab({
             + Add Flight
           </button>
         </div>
+
+        {/* Bulk Actions Toolbar */}
+        {selectedFlights.size > 0 && (
+          <div className="bulk-actions-toolbar">
+            <div className="bulk-selection-info">
+              {selectedFlights.size} flight(s) selected
+            </div>
+            <div className="bulk-actions">
+              <select
+                value={bulkProduct}
+                onChange={(e) => setBulkProduct(e.target.value)}
+                className="bulk-product-select"
+              >
+                <option value="Choose Product">Choose Product</option>
+                <option value="DIO - 1A Targeted Takeover">DR Targeted Video</option>
+              </select>
+              <button onClick={handleBulkAssignProduct} className="btn btn-secondary btn-small">
+                Assign Product
+              </button>
+              <button onClick={handleBulkDelete} className="btn btn-secondary btn-small delete-btn">
+                Delete Selected
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flights-table-container">
           <table className="flights-table">
             <thead>
               <tr>
+                <th className="checkbox-column">
+                  <input
+                    type="checkbox"
+                    checked={selectedFlights.size === editedFlights.length && editedFlights.length > 0}
+                    onChange={handleSelectAll}
+                    title="Select all"
+                  />
+                </th>
                 <th>Status</th>
                 <th>Placement ID</th>
                 <th>Name</th>
@@ -447,8 +536,16 @@ export default function PushToSystemsTab({
                     ${flight.needs_review ? 'needs-review' : ''} 
                     ${flight.isEdited ? 'edited' : ''}
                     ${flight.isReviewed ? 'reviewed' : ''}
+                    ${selectedFlights.has(index) ? 'selected' : ''}
                   `}
                 >
+                  <td className="checkbox-column">
+                    <input
+                      type="checkbox"
+                      checked={selectedFlights.has(index)}
+                      onChange={() => handleSelectFlight(index)}
+                    />
+                  </td>
                   <td>
                     <div className="status-cell">
                       <span className={`status-badge ${flight.status}`}>
