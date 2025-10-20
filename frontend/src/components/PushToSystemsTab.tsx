@@ -1,62 +1,11 @@
 import { useState, useMemo } from 'react';
+import type { SimplifiedData, EditedField, EditedFlight } from '../types';
 import './PushToSystemsTab.css';
-
-// Types matching the simplified output format
-interface SimplifiedField {
-  field: string;
-  value: any;
-  confidence: number;
-  status: 'use' | 'review' | 'reject';
-  needs_review: boolean;
-  reason?: string;
-}
-
-interface SimplifiedFlight {
-  index: number | null;
-  placement_id: string | null;
-  name: string | null;
-  start: string | null;
-  end: string | null;
-  units: number | null;
-  unit_type: string | null;
-  rate_cpm: number | null;
-  cost_method: string | null;
-  cost: number | null;
-  currency: string | null;
-  confidence: number;
-  status: 'use' | 'review' | 'reject';
-  needs_review: boolean;
-  reason?: string;
-}
-
-interface SimplifiedData {
-  fields: SimplifiedField[];
-  flights: SimplifiedFlight[];
-  overall_confidence: number;
-  needs_review: boolean;
-  summary: {
-    total_fields: number;
-    use_count: number;
-    review_count: number;
-    reject_count: number;
-  };
-}
 
 interface PushToSystemsTabProps {
   simplifiedData: SimplifiedData;
   onSave?: (editedData: SimplifiedData) => void;
   onPush?: (payload: any) => Promise<void>;
-}
-
-interface EditedField extends SimplifiedField {
-  isEdited?: boolean;
-  isReviewed?: boolean;
-}
-
-interface EditedFlight extends SimplifiedFlight {
-  isEdited?: boolean;
-  isReviewed?: boolean;
-  product?: string;
 }
 
 export default function PushToSystemsTab({ 
@@ -73,6 +22,20 @@ export default function PushToSystemsTab({
   const [showDebug, setShowDebug] = useState(false);
   const [pushStatus, setPushStatus] = useState<'idle' | 'pushing' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isPushed, setIsPushed] = useState(false);
+
+  // AOS Configuration
+  const [aosConfig, setAosConfig] = useState({
+    dealId: '',
+    timeZone: 'America/New_York',
+    distribution: 'Pro-rate by Day',
+    lineType: 'STANDARD',
+    planProductId: '68e44077d3e663b9264a7011',
+    productId: '6408d925e026aa3b863ff8eb',
+    lineClassId: 'JHHPLIuxRpKxrl-b776nJA',
+    costMethodId: 'FNbz9RlSRk2Kp7tABGQZkg',
+    unitTypeId: 'Nj9QzU8zTHKFCThdlN-8YA'
+  });
 
   // Field name formatting
   const formatFieldName = (field: string): string => {
@@ -93,6 +56,9 @@ export default function PushToSystemsTab({
 
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
+
+    // Check AOS configuration
+    if (!aosConfig.dealId) errors.push('Deal ID is required');
 
     // Check required fields
     requiredFields.forEach(fieldName => {
@@ -123,7 +89,7 @@ export default function PushToSystemsTab({
     });
 
     return errors;
-  }, [editedFields, editedFlights]);
+  }, [editedFields, editedFlights, aosConfig]);
 
   const canPush = validationErrors.length === 0;
 
@@ -168,6 +134,34 @@ export default function PushToSystemsTab({
     );
   };
 
+  const handleAddFlight = () => {
+    const newFlight: EditedFlight = {
+      index: editedFlights.length + 1,
+      placement_id: null,
+      name: null,
+      start: null,
+      end: null,
+      units: null,
+      unit_type: null,
+      rate_cpm: null,
+      cost_method: null,
+      cost: null,
+      currency: 'USD',
+      confidence: 1.0,
+      status: 'use',
+      needs_review: false,
+      product: 'Choose Product',
+      isEdited: true
+    };
+    setEditedFlights([...editedFlights, newFlight]);
+  };
+
+  const handleDeleteFlight = (index: number) => {
+    if (confirm('Are you sure you want to delete this flight?')) {
+      setEditedFlights(flights => flights.filter((_, i) => i !== index));
+    }
+  };
+
   const handleSave = () => {
     const updatedData: SimplifiedData = {
       ...simplifiedData,
@@ -188,58 +182,88 @@ export default function PushToSystemsTab({
     alert('Draft saved successfully!');
   };
 
+  // Build Unified Planner operations from flights
+  const buildOperations = () => {
+    return editedFlights.map((flight, i) => {
+      const name = flight.name || `Auto Line ${flight.start} to ${flight.end}`;
+      const externalLineId = `line-${flight.start}${i ? `-${i+1}` : ''}`;
+
+      return {
+        externalLineId,
+        operation: 'CREATE',
+        planDigitalLineRequest: {
+          name,
+          distribution: aosConfig.distribution,
+          period: {
+            startDate: flight.start,
+            endDate: flight.end,
+            timeZone: aosConfig.timeZone
+          },
+          planWorkspaceProduct: {
+            planProductId: aosConfig.planProductId,
+            productId: aosConfig.productId,
+            lineClassId: aosConfig.lineClassId,
+            lineType: aosConfig.lineType
+          },
+          rates: {
+            costMethodId: aosConfig.costMethodId,
+            unitTypeId: aosConfig.unitTypeId,
+            quantity: flight.units || 0,
+            netUnitCost: flight.rate_cpm || 0
+          },
+          targets: [
+            {
+              id: 6,
+              groupedTargets: [
+                {
+                  childTargets: [
+                    { id: 3, targetOptions: [ { id: 85 } ] }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      };
+    });
+  };
+
   const handlePush = async () => {
     if (!canPush) return;
 
     setPushStatus('pushing');
     setErrorMessage('');
 
-    // Build payload
-    const campaignFields: any = {};
-    editedFields.forEach(field => {
-      campaignFields[field.field] = field.value;
-    });
-
-    const payload = {
-      meta: {
-        timestamp: new Date().toISOString(),
-        source: 'tubi_io_parser',
-        overall_confidence: simplifiedData.overall_confidence
-      },
-      campaign: campaignFields,
-      flights: editedFlights.map(f => ({
-        placement_id: f.placement_id,
-        name: f.name,
-        start: f.start,
-        end: f.end,
-        units: f.units,
-        unit_type: f.unit_type,
-        rate_cpm: f.rate_cpm,
-        cost_method: f.cost_method,
-        cost: f.cost,
-        currency: f.currency,
-        product: f.product
-      }))
-    };
-
     try {
+      // Build operations array for Unified Planner
+      const operations = buildOperations();
+
       if (onPush) {
-        await onPush(payload);
+        // Custom push handler provided
+        await onPush({ dealId: aosConfig.dealId, operations });
       } else {
-        // Default: send to AOS endpoint
-        const response = await fetch('http://localhost:3001/api/push-to-aos', {
+        // Default: send to AOS Unified Planner endpoint
+        const response = await fetch('http://localhost:3001/api/aos/push-workspace', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({
+            dealId: aosConfig.dealId,
+            operations
+          })
         });
 
+        const data = await response.json();
+
         if (!response.ok) {
-          throw new Error('Push failed: bad response');
+          throw new Error(data.details || data.error || 'Push failed');
         }
+
+        console.log('AOS Response:', data);
       }
 
       setPushStatus('success');
-      setTimeout(() => setPushStatus('idle'), 3000);
+      setIsPushed(true);
+      setTimeout(() => setPushStatus('idle'), 5000);
     } catch (error) {
       setPushStatus('error');
       setErrorMessage(error instanceof Error ? error.message : 'Push failed');
@@ -278,9 +302,9 @@ export default function PushToSystemsTab({
           </div>
           <div className={`validation-status ${canPush ? 'valid' : 'invalid'}`}>
             {canPush ? (
-              <span>✓ Ready to push</span>
+              <span>Ready to push</span>
             ) : (
-              <span>⚠ {validationErrors.length} items need attention</span>
+              <span>{validationErrors.length} items need attention</span>
             )}
           </div>
         </div>
@@ -289,7 +313,7 @@ export default function PushToSystemsTab({
       {/* Validation Errors */}
       {validationErrors.length > 0 && (
         <div className="validation-errors">
-          <h3>⚠ Issues to Resolve:</h3>
+          <h3>Issues to Resolve:</h3>
           <ul>
             {validationErrors.map((error, i) => (
               <li key={i}>{error}</li>
@@ -298,6 +322,45 @@ export default function PushToSystemsTab({
         </div>
       )}
 
+      {/* AOS Configuration Section */}
+      <div className="aos-config-section">
+        <h2>AOS Configuration</h2>
+        <div className="config-grid">
+          <div className="config-item">
+            <label>Deal ID *</label>
+            <input
+              type="text"
+              value={aosConfig.dealId}
+              onChange={(e) => setAosConfig({ ...aosConfig, dealId: e.target.value })}
+              placeholder="Enter Deal ID"
+              className="config-input"
+            />
+          </div>
+          <div className="config-item">
+            <label>Time Zone</label>
+            <select
+              value={aosConfig.timeZone}
+              onChange={(e) => setAosConfig({ ...aosConfig, timeZone: e.target.value })}
+              className="config-input"
+            >
+              <option value="America/New_York">America/New_York</option>
+              <option value="America/Chicago">America/Chicago</option>
+              <option value="America/Denver">America/Denver</option>
+              <option value="America/Los_Angeles">America/Los_Angeles</option>
+            </select>
+          </div>
+          <div className="config-item">
+            <label>Distribution</label>
+            <input
+              type="text"
+              value={aosConfig.distribution}
+              onChange={(e) => setAosConfig({ ...aosConfig, distribution: e.target.value })}
+              className="config-input"
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Fields Section */}
       <div className="fields-section">
         <h2>Campaign Fields</h2>
@@ -305,7 +368,7 @@ export default function PushToSystemsTab({
         {/* Reject Fields */}
         {rejectFields.length > 0 && (
           <div className="field-group reject-group">
-            <h3>🚫 Rejected Fields (Must Edit)</h3>
+            <h3>Rejected Fields (Must Edit)</h3>
             {rejectFields.map(field => (
               <FieldEditor
                 key={field.field}
@@ -321,7 +384,7 @@ export default function PushToSystemsTab({
         {/* Review Fields */}
         {reviewFields.length > 0 && (
           <div className="field-group review-group">
-            <h3>⚠ Review Required</h3>
+            <h3>Review Required</h3>
             {reviewFields.map(field => (
               <FieldEditor
                 key={field.field}
@@ -337,7 +400,7 @@ export default function PushToSystemsTab({
         {/* Use Fields */}
         {useFields.length > 0 && (
           <div className="field-group use-group">
-            <h3>✓ Ready to Use</h3>
+            <h3>Ready to Use</h3>
             {useFields.map(field => (
               <FieldEditor
                 key={field.field}
@@ -353,7 +416,12 @@ export default function PushToSystemsTab({
 
       {/* Flights Table */}
       <div className="flights-section">
-        <h2>Flights ({editedFlights.length})</h2>
+        <div className="flights-header">
+          <h2>Flights ({editedFlights.length})</h2>
+          <button onClick={handleAddFlight} className="btn btn-secondary btn-small">
+            + Add Flight
+          </button>
+        </div>
         <div className="flights-table-container">
           <table className="flights-table">
             <thead>
@@ -465,20 +533,28 @@ export default function PushToSystemsTab({
                       className="flight-select"
                     >
                       <option value="Choose Product">Choose Product</option>
-                      <option value="Product A">Product A</option>
-                      <option value="Product B">Product B</option>
+                      <option value="DIO - 1A Targeted Takeover">DR Targeted Video</option>
                     </select>
                   </td>
                   <td>
-                    {flight.needs_review && !flight.isReviewed && !flight.isEdited && (
+                    <div className="flight-actions">
+                      {flight.needs_review && !flight.isReviewed && !flight.isEdited && (
+                        <button
+                          onClick={() => handleFlightReview(index)}
+                          className="review-btn"
+                          title={flight.reason || 'Mark as reviewed'}
+                        >
+                          Review
+                        </button>
+                      )}
                       <button
-                        onClick={() => handleFlightReview(index)}
-                        className="review-btn"
-                        title={flight.reason || 'Mark as reviewed'}
+                        onClick={() => handleDeleteFlight(index)}
+                        className="delete-btn"
+                        title="Delete flight"
                       >
-                        ✓ Review
+                        Delete
                       </button>
-                    )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -490,21 +566,21 @@ export default function PushToSystemsTab({
       {/* Actions */}
       <div className="actions-section">
         <button onClick={handleSave} className="btn btn-secondary">
-          💾 Save Draft
+          Save Draft
         </button>
         <button
           onClick={handlePush}
-          disabled={!canPush || pushStatus === 'pushing'}
+          disabled={!canPush || pushStatus === 'pushing' || isPushed}
           className="btn btn-primary"
         >
-          {pushStatus === 'pushing' ? '⏳ Pushing...' : '🚀 Push to AOS'}
+          {isPushed ? 'Already Pushed to AOS' : pushStatus === 'pushing' ? 'Pushing...' : 'Push to AOS'}
         </button>
       </div>
 
       {/* Push Status Messages */}
       {pushStatus === 'success' && (
         <div className="status-message success">
-          ✓ Successfully pushed to AOS!
+          Successfully pushed to AOS!
         </div>
       )}
       {pushStatus === 'error' && (
@@ -565,12 +641,12 @@ function FieldEditor({ field, onChange, onReview, formatFieldName }: FieldEditor
       />
       {field.reason && (
         <div className="field-reason">
-          ℹ️ {field.reason}
+          {field.reason}
         </div>
       )}
       {field.needs_review && !field.isReviewed && !field.isEdited && (
         <button onClick={() => onReview(field.field)} className="review-btn">
-          ✓ Mark as Reviewed
+          Mark as Reviewed
         </button>
       )}
     </div>

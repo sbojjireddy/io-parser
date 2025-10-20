@@ -79,14 +79,6 @@ function parseDate(dateStr: string): Date {
 }
 
 /**
- * Get number of days in a month
- */
-function getDaysInMonth(year: number, month: number): number {
-  const date = new Date(year, month - 1, 1);
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-}
-
-/**
  * Split a flight that crosses months and prorate cost/impressions based on days.
  * Returns list of prorated flight segments.
  */
@@ -201,7 +193,6 @@ export function applyFlightLogic(
   };
   
   // Keep original totals - proration should not change the total campaign values
-  // The proration is only for splitting flights across months, not changing totals
   result.total_campaign_spend = originalTotalCost;
   result.total_contracted_impressions = originalTotalUnits;
   

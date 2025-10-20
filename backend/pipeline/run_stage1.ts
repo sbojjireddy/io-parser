@@ -16,8 +16,7 @@ const execFileAsync = promisify(execFile);
 export async function runStage1(
   sha: string,
   pdfPath: string,
-  openaiFileId: string,
-  extractionPromptPath?: string
+  openaiFileId: string
 ): Promise<{
   openai: { text: string; filePath: string };
   pymupdf: { text: string; filePath: string; orderNumber?: any };
@@ -57,7 +56,7 @@ export async function runStage1(
     if (!openaiExists) {
       console.log('Running OpenAI extraction...');
       extractionTasks.push(
-        extractOpenAIText(openaiFileId, extractionPromptPath).then(async text => {
+        extractOpenAIText(openaiFileId).then(async text => {
           await fs.writeFile(openaiOutputPath, text, "utf-8");
           return { text, filePath: openaiOutputPath };
         })
@@ -104,7 +103,7 @@ export async function runStage1(
       ? path.join(process.cwd(), "..", ".venv", "bin", "python")
       : "python3");
   
-  const orderNumberScript = path.join(process.cwd(), "..", "python", "extract_order_number.py");
+  const orderNumberScript = path.join(process.cwd(), "..", "scripts", "extract_order_number.py");
   
   let pymupdfOrderNumber: any = undefined;
   let openaiOrderNumber: any = undefined;
@@ -174,35 +173,22 @@ async function main() {
   const args = process.argv.slice(2);
   
   if (args.length < 3) {
-    console.error("Usage: npm run run:stage1 -- <sha> <pdfPath> <openaiFileId> [extractionPromptPath]");
+    console.error("Usage: npm run run:stage1 -- <sha> <pdfPath> <openaiFileId>");
     process.exit(1);
   }
 
-  const [sha, pdfPath, openaiFileId, extractionPromptPath] = args;
+  const [sha, pdfPath, openaiFileId] = args;
 
   try {
     console.log(`Running stage 1 extraction for SHA: ${sha}`);
     console.log(`PDF Path: ${pdfPath}`);
     console.log(`OpenAI File ID: ${openaiFileId}`);
-    if (extractionPromptPath) {
-      console.log(`Extraction Prompt: ${extractionPromptPath}`);
-    }
 
-    let results;
-    if (extractionPromptPath !== undefined) {
-      results = await runStage1(
-        sha as string,
-        pdfPath as string,
-        openaiFileId as string,
-        extractionPromptPath as string
-      );
-    } else {
-      results = await runStage1(
-        sha as string,
-        pdfPath as string,
-        openaiFileId as string
-      );
-    }
+    const results = await runStage1(
+      sha as string,
+      pdfPath as string,
+      openaiFileId as string
+    );
 
     console.log("\nStage 1 extraction completed!");
     console.log(`OpenAI text written to: ${results.openai.filePath}`);

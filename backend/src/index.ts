@@ -7,6 +7,11 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { openai } from '../lib/openai.js';
 
+// Import pipeline functions
+import { runStage1 } from '../pipeline/run_stage1.js';
+import { runStage4 } from '../pipeline/run_stage4.js';
+
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -58,10 +63,6 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.json({ message: 'ok' });
 });
-
-// Import pipeline functions
-import { runStage1 } from '../pipeline/run_stage1.js';
-import { runStage4 } from '../pipeline/run_stage4.js';
 
 // File upload route
 app.post('/api/upload', upload.single('file'), async (req, res) => {
@@ -275,34 +276,122 @@ app.post('/api/process-pipeline', upload.single('file'), async (req, res) => {
   }
 });
 
-// Push to AOS endpoint (super chill - just logs and returns success)
-app.post('/api/push-to-aos', express.json(), (req, res) => {
+// AOS Unified Planner Workspace endpoint
+app.post('/api/aos/push-workspace', express.json(), async (req, res) => {
   try {
+    const { dealId, operations } = req.body as {
+      dealId: string;
+      operations: any[];
+    };
+
     console.log('\n========================================');
-    console.log('🚀 PUSH TO AOS REQUEST');
+    console.log('AOS UNIFIED PLANNER PUSH');
     console.log('========================================');
     console.log('Timestamp:', new Date().toISOString());
-    console.log('\nPayload received:');
-    console.log(JSON.stringify(req.body, null, 2));
-    console.log('\n========================================');
-    
-    // Simulate processing time
-    setTimeout(() => {
-      res.json({
-        success: true,
-        message: 'Successfully pushed to AOS',
-        timestamp: new Date().toISOString(),
-        recordsProcessed: {
-          campaign: 1,
-          flights: req.body.flights?.length || 0
-        }
+    console.log('Deal ID:', dealId);
+    console.log('Operations count:', operations?.length || 0);
+
+    // Validation
+    if (!dealId || !Array.isArray(operations)) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        details: 'dealId and operations[] are required'
       });
-    }, 500);
+    }
+
+    // Get credentials from environment (server-side only)
+    const apiKey = process.env.AOS_API_KEY;
+    const pitchUserId = process.env.PITCH_USER_ID;
+    const pitchPassword = process.env.PITCH_PASS;
+
+    if (!apiKey || !pitchUserId || !pitchPassword) {
+      console.error('Missing AOS credentials in environment variables');
+      return res.status(500).json({ 
+        error: 'Server configuration error',
+        details: 'AOS credentials not configured (AOS_API_KEY, PITCH_USER_ID, PITCH_PASS required)'
+      });
+    }
+
+    console.log('\nOperations to create:');
+    operations.forEach((op, i) => {
+      console.log(`  ${i + 1}. ${op.planDigitalLineRequest?.name || 'Unnamed'}`);
+      console.log(`     Period: ${op.planDigitalLineRequest?.period?.startDate} to ${op.planDigitalLineRequest?.period?.endDate}`);
+      console.log(`     Units: ${op.planDigitalLineRequest?.rates?.quantity?.toLocaleString()}`);
+      console.log(`     CPM: $${op.planDigitalLineRequest?.rates?.netUnitCost}`);
+    });
+
+    // Step 1: Mint short-lived token
+    console.log('\nStep 1: Minting short-lived token...');
+    const tokenResp = await fetch(
+      'https://aos-stg-gw.operativeone.com/mayiservice/tenant/foxsandbox',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          userId: pitchUserId,
+          password: pitchPassword,
+          expiration: 5 // 5 minutes
+        })
+      }
+    );
+
+    if (!tokenResp.ok) {
+      const errText = await tokenResp.text();
+      console.error('Token minting failed:', errText);
+      return res.status(tokenResp.status).json({
+        error: 'Failed to mint AOS token',
+        details: errText
+      });
+    }
+
+    const tokenData = await tokenResp.json();
+    const token = tokenData.token;
+    console.log('Token minted successfully');
+    console.log('Token preview:', token.substring(0, 50) + '...');
+
+    // Step 2: Push operations to Unified Planner Workspace
+    console.log('\nStep 2: Pushing to Unified Planner Workspace...');
+    const workspaceUrl = `https://aos-stg-gw.operativeone.com/unifiedplanner/v1/${apiKey}/plans/${dealId}/workspace/digital?version=1`;
     
+    const upResp = await fetch(workspaceUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'allowSpecifyId': 'false'
+      },
+      body: JSON.stringify(operations)
+    });
+
+    const bodyText = await upResp.text();
+    
+    if (!upResp.ok) {
+      console.error('AOS Unified Planner error:', bodyText);
+      return res.status(upResp.status).json({
+        error: 'AOS Unified Planner request failed',
+        details: bodyText
+      });
+    }
+
+    console.log('Successfully pushed to AOS');
+    console.log('Response:', bodyText);
+    console.log('========================================\n');
+
+    // Success - relay AOS response back to client
+    res.status(200).json({
+      success: true,
+      message: 'Successfully pushed to AOS Unified Planner',
+      aosResponse: bodyText,
+      timestamp: new Date().toISOString(),
+      operationsProcessed: operations.length
+    });
+
   } catch (error) {
-    console.error('Push to AOS error:', (error as Error).message);
+    console.error('AOS push error:', (error as Error).message);
+    console.error('Stack:', (error as Error).stack);
     res.status(500).json({ 
-      error: 'Push to AOS failed', 
+      error: 'AOS push failed', 
       details: (error as Error).message 
     });
   }

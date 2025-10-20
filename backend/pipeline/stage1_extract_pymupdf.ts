@@ -21,7 +21,7 @@ export async function extractPyMuPDFText(
   await fs.mkdir(extractedDir, { recursive: true });
 
   // Run PyMuPDF text extraction
-  const pythonScript = path.join(process.cwd(), "..", "python", "dump_text.py");
+  const pythonScript = path.join(process.cwd(), "..", "scripts", "dump_text.py");
   const outputPath = path.join(extractedDir, `${sha}.pymu.txt`);
 
   try {

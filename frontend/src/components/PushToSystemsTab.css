@@ -142,6 +142,54 @@
   margin-bottom: 4px;
 }
 
+/* AOS Configuration Section */
+.aos-config-section {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 30px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid #1976d2;
+}
+
+.aos-config-section h2 {
+  margin: 0 0 20px 0;
+  font-size: 18px;
+  color: #1976d2;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+}
+
+.config-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-item label {
+  font-weight: 600;
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 6px;
+}
+
+.config-input {
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.config-input:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.1);
+}
+
 /* Fields Section */
 .fields-section {
   margin-bottom: 30px;
@@ -297,9 +345,47 @@
   background: #388e3c;
 }
 
+.flight-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.delete-btn {
+  padding: 6px 12px;
+  background: #f44336;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.delete-btn:hover {
+  background: #d32f2f;
+}
+
 /* Flights Table */
 .flights-section {
   margin-bottom: 30px;
+}
+
+.flights-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.flights-header h2 {
+  margin: 0;
+}
+
+.btn-small {
+  padding: 8px 16px;
+  font-size: 14px;
 }
 
 .flights-section > h2 {

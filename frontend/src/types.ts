@@ -111,3 +111,56 @@ export interface PipelineResult {
   };
   finalData: IOData;
 }
+
+// Simplified output types (used across frontend components)
+export interface SimplifiedField {
+  field: string;
+  value: any;
+  confidence: number;
+  status: 'use' | 'review' | 'reject';
+  needs_review: boolean;
+  reason?: string;
+}
+
+export interface SimplifiedFlight {
+  index: number | null;
+  placement_id: string | null;
+  name: string | null;
+  start: string | null;
+  end: string | null;
+  units: number | null;
+  unit_type: string | null;
+  rate_cpm: number | null;
+  cost_method: string | null;
+  cost: number | null;
+  currency: string | null;
+  confidence: number;
+  status: 'use' | 'review' | 'reject';
+  needs_review: boolean;
+  reason?: string;
+}
+
+export interface SimplifiedData {
+  fields: SimplifiedField[];
+  flights: SimplifiedFlight[];
+  overall_confidence: number;
+  needs_review: boolean;
+  summary: {
+    total_fields: number;
+    use_count: number;
+    review_count: number;
+    reject_count: number;
+  };
+}
+
+// Extended types for editing state
+export interface EditedField extends SimplifiedField {
+  isEdited?: boolean;
+  isReviewed?: boolean;
+}
+
+export interface EditedFlight extends SimplifiedFlight {
+  isEdited?: boolean;
+  isReviewed?: boolean;
+  product?: string;
+}

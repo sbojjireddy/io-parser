@@ -1,0 +1,296 @@
+{
+  "type": "object",
+  "required": [
+    "advertiser_name",
+    "agency_name",
+    "campaign_total_flight",
+    "total_contracted_impressions",
+    "total_campaign_spend",
+    "currency",
+    "po_number",
+    "account_executive_name",
+    "frequency_cap",
+    "period",
+    "flights",
+    "explanation",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "advertiser_name": {
+      "type": ["string", "null"],
+      "description": "The advertiser/client company name"
+    },
+    "agency_name": {
+      "type": ["string", "null"],
+      "description": "The agency company name handling this campaign"
+    },
+    "campaign_total_flight": {
+      "type": ["object", "null"],
+      "required": ["start", "end"],
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "type": ["string", "null"],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Campaign start date in YYYY-MM-DD format"
+        },
+        "end": {
+          "type": ["string", "null"],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Campaign end date in YYYY-MM-DD format"
+        }
+      }
+    },
+    "total_contracted_impressions": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Total number of contracted impressions"
+    },
+    "total_campaign_spend": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "description": "Total campaign spend amount"
+    },
+    "currency": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Z]{3}$",
+      "description": "Currency code (e.g., USD)"
+    },
+    "po_number": {
+      "type": ["string", "null"],
+      "description": "Purchase order number or external PO number"
+    },
+    "account_executive_name": {
+      "type": ["string", "null"],
+      "description": "Tubi account executive name (must be from Tubi, not agency)"
+    },
+    "frequency_cap": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 2,
+      "description": "Frequency cap for the campaign (defaults to 2 if not found)"
+    },
+    "period": {
+      "type": ["object", "null"],
+      "required": ["start", "end"],
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "type": ["string", "null"],
+          "description": "Period start (e.g., 'Apr'25')"
+        },
+        "end": {
+          "type": ["string", "null"],
+          "description": "Period end (e.g., 'Jun'25')"
+        }
+      }
+    },
+    "flights": {
+      "type": "array",
+      "minItems": 0,
+      "description": "Per-flight / per-line-item breakdown (e.g. from Flighting details or Buy Type tables).",
+      "items": {
+        "type": "object",
+        "required": [
+          "index",
+          "placement_id",
+          "name",
+          "start",
+          "end",
+          "units",
+          "unit_type",
+          "rate_cpm",
+          "cost_method",
+          "cost",
+          "currency",
+          "provenance"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "1-based order of the flight within the document/table"
+          },
+          "placement_id": {
+            "type": ["string", "null"],
+            "description": "Placement or line-item identifier if present (e.g., GLD000XV6P...)"
+          },
+          "name": {
+            "type": ["string", "null"],
+            "description": "Flight or placement name/label (e.g., 'Holiday Push')"
+          },
+          "start": {
+            "type": ["string", "null"],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Flight start date in YYYY-MM-DD format"
+          },
+          "end": {
+            "type": ["string", "null"],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Flight end date in YYYY-MM-DD format"
+          },
+          "units": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Total impressions for this flight"
+          },
+          "unit_type": {
+            "type": ["string", "null"],
+            "description": "Unit type label (e.g., 'Viewed Impressions')"
+          },
+          "rate_cpm": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "CPM rate for this flight (e.g., 13.5100)"
+          },
+          "cost_method": {
+            "type": ["string", "null"],
+            "description": "Cost method (e.g., CPM, CPMV)"
+          },
+          "cost": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "Cost for this flight (decimal, no commas or currency symbol)"
+          },
+          "currency": {
+            "type": ["string", "null"],
+            "pattern": "^[A-Z]{3}$",
+            "description": "Currency code for this flight (e.g., USD)"
+          },
+          "provenance": {
+            "type": "object",
+            "required": [
+              "quote",
+              "location_hint",
+              "find_confidence_interval",
+              "value_confidence_interval",
+              "rationale"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "quote": {
+                "type": "string",
+                "description": "Exact quote/snippet for this flight from the table"
+              },
+              "location_hint": {
+                "type": "string",
+                "description": "Where in the document this flight info was found (e.g., 'page 5, Flighting details table, OCT 2025 column')"
+              },
+              "find_confidence_interval": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "description": "Confidence interval [min, max] for likelihood the quoted span truly appears in TEXT and belongs to this field"
+              },
+              "value_confidence_interval": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "description": "Confidence interval [min, max] for likelihood the normalized value you output is correct"
+              },
+              "rationale": {
+                "type": "string",
+                "description": "Short reason tied to the evidence (max ~20 words)"
+              }
+            }
+          }
+        }
+      }
+    },
+    "explanation": {
+      "type": "object",
+      "required": ["summary", "assumptions", "omissions"],
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "Summary of how the document was parsed",
+          "minLength": 1
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of assumptions made during parsing"
+        },
+        "omissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of fields that could not be found"
+        }
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "field",
+          "quote",
+          "location_hint",
+          "find_confidence_interval",
+          "value_confidence_interval",
+          "rationale"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "The field name this provenance refers to"
+          },
+          "quote": {
+            "type": "string",
+            "description": "Exact quote from the document"
+          },
+          "location_hint": {
+            "type": "string",
+            "description": "Where in the document this was found"
+          },
+          "find_confidence_interval": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "description": "Confidence interval [min, max] for likelihood the quoted span truly appears in TEXT and belongs to this field"
+          },
+          "value_confidence_interval": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "description": "Confidence interval [min, max] for likelihood the normalized value you output is correct"
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Short reason tied to the evidence (max ~20 words)"
+          }
+        }
+      }
+    }
+  }
+}
+

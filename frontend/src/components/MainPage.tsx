@@ -1,42 +1,6 @@
 import { useState } from 'react';
-import type { IOData } from '../types';
+import type { IOData, SimplifiedData } from '../types';
 import './MainPage.css';
-
-interface SimplifiedData {
-  fields: Array<{
-    field: string;
-    value: any;
-    confidence: number;
-    status: 'use' | 'review' | 'reject';
-    needs_review: boolean;
-    reason?: string;
-  }>;
-  flights: Array<{
-    index: number | null;
-    placement_id: string | null;
-    name: string | null;
-    start: string | null;
-    end: string | null;
-    units: number | null;
-    unit_type: string | null;
-    rate_cpm: number | null;
-    cost_method: string | null;
-    cost: number | null;
-    currency: string | null;
-    confidence: number;
-    status: 'use' | 'review' | 'reject';
-    needs_review: boolean;
-    reason?: string;
-  }>;
-  overall_confidence: number;
-  needs_review: boolean;
-  summary: {
-    total_fields: number;
-    use_count: number;
-    review_count: number;
-    reject_count: number;
-  };
-}
 
 interface MainPageProps {
   onExtractionComplete: (fullData: IOData, simplified: SimplifiedData) => void;
@@ -163,7 +127,7 @@ const MainPage: React.FC<MainPageProps> = ({ onExtractionComplete, onExtractionE
           {file && (
             <div className="file-info">
               <div className="file-details">
-                <span className="file-name">📄 {file.name}</span>
+                <span className="file-name">{file.name}</span>
                 <span className="file-size">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
               </div>
               <button onClick={clearFile} className="clear-file-btn">
@@ -227,7 +191,7 @@ const MainPage: React.FC<MainPageProps> = ({ onExtractionComplete, onExtractionE
       </div>
 
       <div className="footer">
-        <p>© 2024 Tubi Prompt-Engineered IO Parser.</p>
+        <p>2024 Tubi Prompt-Engineered IO Parser.</p>
       </div>
     </div>
   );
