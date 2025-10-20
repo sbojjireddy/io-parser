@@ -66,6 +66,12 @@ const MainPage: React.FC<MainPageProps> = ({ onExtractionComplete, onExtractionE
         body: formData,
       });
 
+      // Check if response is valid JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Server returned non-JSON response. The request may have timed out or the server encountered an error.');
+      }
+
       const data = await response.json();
 
       if (!response.ok) {
@@ -75,7 +81,18 @@ const MainPage: React.FC<MainPageProps> = ({ onExtractionComplete, onExtractionE
       setResult(data);
       onExtractionComplete(data.fullData, data.data);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Upload failed';
+      let errorMessage = 'Upload failed';
+      
+      if (err instanceof Error) {
+        if (err.message.includes('Failed to fetch')) {
+          errorMessage = 'Network error: Unable to connect to server. The server may be down or the request timed out.';
+        } else if (err.message.includes('JSON')) {
+          errorMessage = 'Server error: The request may have timed out. Large PDFs can take 10-20 minutes to process. Please try again or use a smaller file.';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
       setError(errorMessage);
       onExtractionError(errorMessage);
     } finally {

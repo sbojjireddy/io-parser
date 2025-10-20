@@ -68,6 +68,13 @@ const saveCache = (cache: any) => {
 app.use(cors());
 app.use(express.json());
 
+// Increase timeout for long-running operations (30 minutes)
+app.use((req, res, next) => {
+  req.setTimeout(30 * 60 * 1000); // 30 minutes
+  res.setTimeout(30 * 60 * 1000); // 30 minutes
+  next();
+});
+
 // Routes
 app.get('/', (req, res) => {
   res.json({ message: 'ok' });
@@ -425,6 +432,11 @@ app.use((req, res) => {
 });
 
 // Start server
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
+
+// Set server timeout to 30 minutes for long-running operations
+server.timeout = 30 * 60 * 1000; // 30 minutes
+server.keepAliveTimeout = 30 * 60 * 1000; // 30 minutes
+server.headersTimeout = 30 * 60 * 1000; // 30 minutes
