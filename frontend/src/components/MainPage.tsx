@@ -61,7 +61,7 @@ const MainPage: React.FC<MainPageProps> = ({ onExtractionComplete, onExtractionE
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://localhost:3001/api/process-pipeline', {
+      const response = await fetch('/api/process-pipeline', {
         method: 'POST',
         body: formData,
       });

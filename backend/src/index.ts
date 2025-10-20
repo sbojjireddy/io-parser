@@ -13,10 +13,19 @@ import { runStage4 } from '../pipeline/run_stage4.js';
 
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const port = process.env.PORT ? Number(process.env.PORT) : 8080;
 
 // Log environment variables for debugging
 console.log('OPENAI_API_KEY set:', !!process.env.OPENAI_API_KEY);
+
+// Serve static frontend files (for Docker/production)
+const frontendPath = path.join(process.cwd(), '..', 'frontend', 'dist');
+if (fs.existsSync(frontendPath)) {
+  console.log('Serving frontend from:', frontendPath);
+  app.use(express.static(frontendPath));
+} else {
+  console.log('Frontend build not found at:', frontendPath);
+}
 
 // Configure multer for memory storage
 const upload = multer({ 
@@ -397,7 +406,26 @@ app.post('/api/aos/push-workspace', express.json(), async (req, res) => {
   }
 });
 
+// Health check endpoint for Cloud Run
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Catch-all route to serve frontend for client-side routing (must be last)
+app.use((req, res) => {
+  const indexPath = path.join(process.cwd(), '..', 'frontend', 'dist', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).send('Frontend not found. Make sure to build the frontend first.');
+  }
+});
+
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 });

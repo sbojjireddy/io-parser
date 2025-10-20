@@ -1,0 +1,15 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - PYTHON_PATH=/usr/bin/python3
+    restart: unless-stopped
+

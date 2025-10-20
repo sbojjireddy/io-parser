@@ -1,0 +1,14 @@
+Extract the entire document in **structured Markdown**.\n\n
+RULES:\n
+• Strictly no hallucinations. Values must be copied EXACTLY as written in the PDF
+• Extract EVERYTHING — every table, value, date, name, rate, and detail — verbatim.\n
+• **Do NOT skip or abbreviate ANY content.** Do NOT use ellipses (`...`) or shorten names, tables, or text.\
+• Include all pages and all sections from start to finish.\n
+• **Only** summarize long-form legal or boilerplate sections (e.g., indemnity, governing law, payment terms) in 2–3 sentences each.\n
+• All business, financial, and operational content must be extracted fully — including long flighting tables, monthly allocations, added value sections, and any extended placement rows.\n
+• Render all tables as properly formatted Markdown tables with full headers and all rows.\n
+• Preserve numeric precision, currency symbols, and date formats exactly.\n
+• Insert `<!-- Page N -->` comments where each new page begins.\n
+• If any content is unreadable or appears as an image, mark it as `[UNREADABLE]` or `[IMAGE]` and continue — do NOT skip the section.\n
+• Do not omit any section simply because it looks repetitive or long.\n
+• Output Markdown only — no explanations or commentary.

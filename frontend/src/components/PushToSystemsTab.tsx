@@ -483,7 +483,7 @@ export default function PushToSystemsTab({
         await onPush({ dealId: aosConfig.dealId, operations });
       } else {
         // Default: send to AOS Unified Planner endpoint
-        const response = await fetch('http://localhost:3001/api/aos/push-workspace', {
+        const response = await fetch('/api/aos/push-workspace', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
