@@ -357,7 +357,6 @@ app.post('/api/aos/push-workspace', express.json(), async (req, res) => {
     const tokenData = await tokenResp.json();
     const token = tokenData.token;
     console.log('Token minted successfully');
-    console.log('Token preview:', token.substring(0, 50) + '...');
 
     // Step 2: Push operations to Unified Planner Workspace
     console.log('\nStep 2: Pushing to Unified Planner Workspace...');

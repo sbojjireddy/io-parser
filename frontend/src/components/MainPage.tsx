@@ -98,7 +98,6 @@ const MainPage: React.FC<MainPageProps> = ({ onExtractionComplete, onExtractionE
       <div className="main-content">
         <div className="content-card">
           <h1>Prompt-Engineered Parser</h1>
-          <p>Uses advanced prompt engineering with structured outputs for high-quality extraction.</p>
           
           <div 
             className={`upload-area ${dragActive ? 'drag-active' : ''} ${file ? 'has-file' : ''}`}

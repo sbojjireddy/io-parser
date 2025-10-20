@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import type { SimplifiedData, EditedField, EditedFlight } from '../types';
 import './PushToSystemsTab.css';
+import productsData from '../data/products.json';
 
 interface PushToSystemsTabProps {
   simplifiedData: SimplifiedData;
@@ -8,12 +9,15 @@ interface PushToSystemsTabProps {
   onPush?: (payload: any) => Promise<void>;
 }
 
-// Product options for searchable dropdown
-const PRODUCT_OPTIONS = [
-  'Choose Product',
-  'DIO - 1A Targeted Takeover',
-  'DR Targeted Video'
-];
+interface Product {
+  productId: string;
+  productName: string;
+}
+
+// Load and prepare products
+const PRODUCTS: Product[] = productsData as Product[];
+const PRODUCT_OPTIONS = ['Choose Product', ...PRODUCTS.map(p => p.productName)];
+const PRODUCT_MAP = new Map(PRODUCTS.map(p => [p.productName, p.productId]));
 
 // Flight name generation helper (outside component for reuse in initialization)
 const generateFlightName = (
@@ -92,6 +96,7 @@ export default function PushToSystemsTab({
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isPushed, setIsPushed] = useState(false);
   const [selectedFlights, setSelectedFlights] = useState<Set<number>>(new Set());
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [bulkProduct, setBulkProduct] = useState('Choose Product');
   
   // Bulk editing for line-item level fields
@@ -251,20 +256,38 @@ export default function PushToSystemsTab({
   const handleSelectAll = () => {
     if (selectedFlights.size === editedFlights.length) {
       setSelectedFlights(new Set());
+      setLastSelectedIndex(null);
     } else {
       setSelectedFlights(new Set(editedFlights.map((_, i) => i)));
+      setLastSelectedIndex(null);
     }
   };
 
-  const handleSelectFlight = (index: number) => {
+  const handleSelectFlight = (index: number, shiftKey: boolean = false) => {
     setSelectedFlights(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(index)) {
-        newSet.delete(index);
+      
+      // Shift-click: select range (always add to selection)
+      if (shiftKey && lastSelectedIndex !== null) {
+        const start = Math.min(lastSelectedIndex, index);
+        const end = Math.max(lastSelectedIndex, index);
+        // Include both start and end in the range
+        for (let i = start; i <= end; i++) {
+          newSet.add(i);
+        }
+        // Don't update lastSelectedIndex on shift-click, keep it for next range
+        return newSet;
       } else {
-        newSet.add(index);
+        // Regular click: toggle
+        if (newSet.has(index)) {
+          newSet.delete(index);
+        } else {
+          newSet.add(index);
+        }
+        // Update last selected index for regular clicks
+        setLastSelectedIndex(index);
+        return newSet;
       }
-      return newSet;
     });
   };
 
@@ -303,15 +326,27 @@ export default function PushToSystemsTab({
     }
 
     setEditedFlights(flights =>
-      flights.map((f, i) =>
-        selectedFlights.has(i)
-          ? { ...f, flightName: bulkFlightName, isEdited: true }
-          : f
-      )
+      flights.map((f, i) => {
+        if (!selectedFlights.has(i)) return f;
+        
+        const updatedFlight = { ...f, flightName: bulkFlightName, isEdited: true };
+        
+        // Regenerate name with updated flight name
+        const generatedName = generateFlightName(
+          campaignAgency,
+          campaignAdvertiser,
+          updatedFlight.flightName || '',
+          updatedFlight.targeting || '',
+          updatedFlight.start,
+          updatedFlight.end
+        );
+        
+        return { ...updatedFlight, generatedName };
+      })
     );
     
     const action = bulkFlightName.trim() ? 'assigned' : 'cleared';
-    alert(`Flight name ${action} for ${selectedFlights.size} flight(s)`);
+    alert(`Flight name ${action} and names regenerated for ${selectedFlights.size} flight(s)`);
   };
 
   const handleBulkAssignTargetingOnly = () => {
@@ -321,15 +356,27 @@ export default function PushToSystemsTab({
     }
 
     setEditedFlights(flights =>
-      flights.map((f, i) =>
-        selectedFlights.has(i)
-          ? { ...f, targeting: bulkTargeting, isEdited: true }
-          : f
-      )
+      flights.map((f, i) => {
+        if (!selectedFlights.has(i)) return f;
+        
+        const updatedFlight = { ...f, targeting: bulkTargeting, isEdited: true };
+        
+        // Regenerate name with updated targeting
+        const generatedName = generateFlightName(
+          campaignAgency,
+          campaignAdvertiser,
+          updatedFlight.flightName || '',
+          updatedFlight.targeting || '',
+          updatedFlight.start,
+          updatedFlight.end
+        );
+        
+        return { ...updatedFlight, generatedName };
+      })
     );
     
     const action = bulkTargeting.trim() ? 'assigned' : 'cleared';
-    alert(`Targeting ${action} for ${selectedFlights.size} flight(s)`);
+    alert(`Targeting ${action} and names regenerated for ${selectedFlights.size} flight(s)`);
   };
 
   const handleGenerateFlightNames = () => {
@@ -417,6 +464,11 @@ export default function PushToSystemsTab({
       const name = flight.generatedName || flight.name || `Auto Line ${flight.start} to ${flight.end}`;
       const externalLineId = `line-${flight.start}${i ? `-${i+1}` : ''}`;
 
+      // Get product ID from product name
+      const productId = flight.product && flight.product !== 'Choose Product' 
+        ? PRODUCT_MAP.get(flight.product) 
+        : aosConfig.productId;
+
       return {
         externalLineId,
         operation: 'CREATE',
@@ -430,7 +482,7 @@ export default function PushToSystemsTab({
           },
           planWorkspaceProduct: {
             planProductId: aosConfig.planProductId,
-            productId: aosConfig.productId,
+            productId: productId,
             lineClassId: aosConfig.lineClassId,
             lineType: aosConfig.lineType
           },
@@ -786,7 +838,9 @@ export default function PushToSystemsTab({
                     <input
                       type="checkbox"
                       checked={selectedFlights.has(index)}
-                      onChange={() => handleSelectFlight(index)}
+                      onChange={(e) => {
+                        handleSelectFlight(index, (e.nativeEvent as MouseEvent).shiftKey);
+                      }}
                     />
                   </td>
                   <td>
