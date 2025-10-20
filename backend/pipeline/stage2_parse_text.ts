@@ -52,15 +52,31 @@ ${text}`
           strict: true
         }
       },
-      temperature: 0
+      temperature: 0,
+      max_tokens: 16384 // Increase token limit for large responses
     });
+
+    const finishReason = response.choices[0]?.finish_reason;
+    if (finishReason === "length") {
+      console.warn("OpenAI response was truncated due to max_tokens limit");
+      throw new Error("Response truncated: The IO document is too large. Try using a shorter document or splitting it into multiple parts.");
+    }
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
       throw new Error("No content returned from OpenAI");
     }
 
-    const parsed = JSON.parse(content);
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseError) {
+      // Save the problematic response for debugging
+      const errorLogPath = path.join(process.cwd(), 'data', 'logs', `parse_error_${Date.now()}.txt`);
+      fs.writeFileSync(errorLogPath, `OpenAI Response:\n${content}\n\nError: ${(parseError as Error).message}`);
+      console.error(`JSON parse error. Response saved to: ${errorLogPath}`);
+      throw new Error(`Invalid JSON from OpenAI: ${(parseError as Error).message}. Check logs for details.`);
+    }
     
     // Override po_number with order number from PyMuPDF if available (PyMuPDF takes precedence)
     if (orderNumber) {

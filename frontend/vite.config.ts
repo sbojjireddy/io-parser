@@ -5,7 +5,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/api": "http://localhost:8080"
+      "/api": {
+        target: "http://localhost:8080",
+        timeout: 30 * 60 * 1000, // 30 minutes
+        proxyTimeout: 30 * 60 * 1000, // 30 minutes
+      }
     }
   }
 });
