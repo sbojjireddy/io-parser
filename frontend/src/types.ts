@@ -163,4 +163,7 @@ export interface EditedFlight extends SimplifiedFlight {
   isEdited?: boolean;
   isReviewed?: boolean;
   product?: string;
+  flightName?: string; // User-editable flight name component
+  targeting?: string;  // User-editable targeting component
+  generatedName?: string; // Auto-generated full flight name
 }

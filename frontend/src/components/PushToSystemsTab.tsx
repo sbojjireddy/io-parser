@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import type { SimplifiedData, EditedField, EditedFlight } from '../types';
 import './PushToSystemsTab.css';
 
@@ -8,6 +8,51 @@ interface PushToSystemsTabProps {
   onPush?: (payload: any) => Promise<void>;
 }
 
+// Product options for searchable dropdown
+const PRODUCT_OPTIONS = [
+  'Choose Product',
+  'DIO - 1A Targeted Takeover',
+  'DR Targeted Video'
+];
+
+// Flight name generation helper (outside component for reuse in initialization)
+const generateFlightName = (
+  agency: string,
+  advertiser: string,
+  flightName: string,
+  targeting: string,
+  startDate: string | null,
+  endDate: string | null
+): string => {
+  const parts: string[] = [];
+  
+  // Add agency (remove spaces and special chars)
+  if (agency) parts.push(agency.replace(/[^a-zA-Z0-9]/g, ''));
+  
+  // Add advertiser (remove spaces and special chars)
+  if (advertiser) parts.push(advertiser.replace(/[^a-zA-Z0-9]/g, ''));
+  
+  // Add flight name (optional)
+  if (flightName) parts.push(flightName.replace(/[^a-zA-Z0-9]/g, ''));
+  
+  // Add targeting (optional)
+  if (targeting) parts.push(targeting.replace(/[^a-zA-Z0-9]/g, ''));
+  
+  // Add date range (startMonth-endMonth-year)
+  if (startDate && endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const startMonth = monthNames[start.getMonth()];
+    const endMonth = monthNames[end.getMonth()];
+    const year = end.getFullYear();
+    parts.push(`${startMonth}-${endMonth}-${year}`);
+  }
+  
+  // Join with underscores, removing any empty parts
+  return parts.filter(p => p).join('_');
+};
+
 export default function PushToSystemsTab({ 
   simplifiedData, 
   onSave, 
@@ -16,15 +61,42 @@ export default function PushToSystemsTab({
   const [editedFields, setEditedFields] = useState<EditedField[]>(
     simplifiedData.fields.map(f => ({ ...f }))
   );
-  const [editedFlights, setEditedFlights] = useState<EditedFlight[]>(
-    simplifiedData.flights.map(f => ({ ...f, product: 'Choose Product' }))
-  );
+  const [editedFlights, setEditedFlights] = useState<EditedFlight[]>(() => {
+    const agency = simplifiedData.fields.find(f => f.field === 'agency_name')?.value || '';
+    const advertiser = simplifiedData.fields.find(f => f.field === 'advertiser_name')?.value || '';
+    
+    return simplifiedData.flights.map(f => {
+      const flightName = f.name || '';
+      const targeting = '';
+      const generatedName = generateFlightName(agency, advertiser, flightName, targeting, f.start, f.end);
+      
+      return {
+        ...f,
+        product: 'Choose Product',
+        flightName,
+        targeting,
+        generatedName
+      };
+    });
+  });
   const [showDebug, setShowDebug] = useState(false);
   const [pushStatus, setPushStatus] = useState<'idle' | 'pushing' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isPushed, setIsPushed] = useState(false);
   const [selectedFlights, setSelectedFlights] = useState<Set<number>>(new Set());
   const [bulkProduct, setBulkProduct] = useState('Choose Product');
+  
+  // Campaign-level naming fields (single source of truth)
+  const [campaignAgency, setCampaignAgency] = useState(
+    editedFields.find(f => f.field === 'agency_name')?.value || ''
+  );
+  const [campaignAdvertiser, setCampaignAdvertiser] = useState(
+    editedFields.find(f => f.field === 'advertiser_name')?.value || ''
+  );
+  
+  // Bulk editing for line-item level fields
+  const [bulkFlightName, setBulkFlightName] = useState('');
+  const [bulkTargeting, setBulkTargeting] = useState('');
 
   // AOS Configuration
   const [aosConfig, setAosConfig] = useState({
@@ -60,7 +132,11 @@ export default function PushToSystemsTab({
     const errors: string[] = [];
 
     // Check AOS configuration
-    if (!aosConfig.dealId) errors.push('Deal ID is required');
+    if (!aosConfig.dealId) {
+      errors.push('Deal ID is required');
+    } else if (aosConfig.dealId.length !== 6) {
+      errors.push('Deal ID must be exactly 6 characters');
+    }
 
     // Check required fields
     requiredFields.forEach(fieldName => {
@@ -153,6 +229,9 @@ export default function PushToSystemsTab({
       status: 'use',
       needs_review: false,
       product: 'Choose Product',
+      flightName: '',
+      targeting: '',
+      generatedName: '',
       isEdited: true
     };
     setEditedFlights([...editedFlights, newFlight]);
@@ -215,6 +294,112 @@ export default function PushToSystemsTab({
       setEditedFlights(flights => flights.filter((_, i) => !selectedFlights.has(i)));
       setSelectedFlights(new Set());
     }
+  };
+
+  const handleBulkAssignFlightNameOnly = () => {
+    if (selectedFlights.size === 0) {
+      alert('Please select flights');
+      return;
+    }
+
+    setEditedFlights(flights =>
+      flights.map((f, i) =>
+        selectedFlights.has(i)
+          ? { ...f, flightName: bulkFlightName, isEdited: true }
+          : f
+      )
+    );
+    
+    const action = bulkFlightName.trim() ? 'assigned' : 'cleared';
+    alert(`Flight name ${action} for ${selectedFlights.size} flight(s)`);
+  };
+
+  const handleBulkAssignTargetingOnly = () => {
+    if (selectedFlights.size === 0) {
+      alert('Please select flights');
+      return;
+    }
+
+    setEditedFlights(flights =>
+      flights.map((f, i) =>
+        selectedFlights.has(i)
+          ? { ...f, targeting: bulkTargeting, isEdited: true }
+          : f
+      )
+    );
+    
+    const action = bulkTargeting.trim() ? 'assigned' : 'cleared';
+    alert(`Targeting ${action} for ${selectedFlights.size} flight(s)`);
+  };
+
+  const handleGenerateFlightNames = () => {
+    if (selectedFlights.size === 0) {
+      alert('Please select flights');
+      return;
+    }
+
+    // First, assign bulk values to selected flights, then generate names
+    setEditedFlights(flights =>
+      flights.map((f, i) => {
+        if (!selectedFlights.has(i)) {
+          return f;
+        }
+
+        // Apply bulk values - use the bulk input if it has a value (even if empty string to clear)
+        const updatedFlight = {
+          ...f,
+          flightName: bulkFlightName !== undefined && bulkFlightName !== null ? bulkFlightName : (f.flightName || ''),
+          targeting: bulkTargeting !== undefined && bulkTargeting !== null ? bulkTargeting : (f.targeting || ''),
+          isEdited: true
+        };
+
+        // Generate name with updated values
+        const generatedName = generateFlightName(
+          campaignAgency,
+          campaignAdvertiser,
+          updatedFlight.flightName,
+          updatedFlight.targeting,
+          updatedFlight.start,
+          updatedFlight.end
+        );
+
+        return { ...updatedFlight, generatedName };
+      })
+    );
+
+    alert(`Generated ${selectedFlights.size} flight name(s)`);
+  };
+
+  const handleUpdateCampaignInfo = () => {
+    // Update the campaign-level fields
+    setEditedFields(fields =>
+      fields.map(f => {
+        if (f.field === 'agency_name') {
+          return { ...f, value: campaignAgency, isEdited: true };
+        }
+        if (f.field === 'advertiser_name') {
+          return { ...f, value: campaignAdvertiser, isEdited: true };
+        }
+        return f;
+      })
+    );
+
+    // Regenerate all flight names with new campaign info (don't apply bulk fields)
+    setEditedFlights(flights =>
+      flights.map(f => {
+        const generatedName = generateFlightName(
+          campaignAgency,
+          campaignAdvertiser,
+          f.flightName || '',
+          f.targeting || '',
+          f.start,
+          f.end
+        );
+        return { ...f, generatedName, isEdited: true };
+      })
+    );
+
+    alert('Campaign info updated and all flight names regenerated');
   };
 
   const handleSave = () => {
@@ -382,13 +567,16 @@ export default function PushToSystemsTab({
         <h2>AOS Configuration</h2>
         <div className="config-grid">
           <div className="config-item">
-            <label>Deal ID *</label>
+            <label>Deal ID * (6 chars)</label>
             <input
               type="text"
               value={aosConfig.dealId}
               onChange={(e) => setAosConfig({ ...aosConfig, dealId: e.target.value })}
-              placeholder="Enter Deal ID"
+              placeholder="6 digits"
               className="config-input"
+              minLength={6}
+              maxLength={6}
+              pattern="\d{6}"
             />
           </div>
           <div className="config-item">
@@ -469,6 +657,38 @@ export default function PushToSystemsTab({
         )}
       </div>
 
+      {/* Campaign Settings for Flight Name Generation */}
+      <div className="campaign-settings-section">
+        <h2>Campaign Settings (Applied to All Flights)</h2>
+        <div className="campaign-settings-grid">
+          <div className="config-item">
+            <label>Agency *</label>
+            <input
+              type="text"
+              value={campaignAgency}
+              onChange={(e) => setCampaignAgency(e.target.value)}
+              placeholder="e.g., OMD"
+              className="config-input"
+            />
+          </div>
+          <div className="config-item">
+            <label>Advertiser *</label>
+            <input
+              type="text"
+              value={campaignAdvertiser}
+              onChange={(e) => setCampaignAdvertiser(e.target.value)}
+              placeholder="e.g., TacoBell"
+              className="config-input"
+            />
+          </div>
+          <div className="config-item">
+            <button onClick={handleUpdateCampaignInfo} className="btn btn-secondary">
+              Update & Regenerate All Names
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Flights Table */}
       <div className="flights-section">
         <div className="flights-header">
@@ -484,21 +704,51 @@ export default function PushToSystemsTab({
             <div className="bulk-selection-info">
               {selectedFlights.size} flight(s) selected
             </div>
-            <div className="bulk-actions">
-              <select
-                value={bulkProduct}
-                onChange={(e) => setBulkProduct(e.target.value)}
-                className="bulk-product-select"
-              >
-                <option value="Choose Product">Choose Product</option>
-                <option value="DIO - 1A Targeted Takeover">DR Targeted Video</option>
-              </select>
-              <button onClick={handleBulkAssignProduct} className="btn btn-secondary btn-small">
-                Assign Product
-              </button>
-              <button onClick={handleBulkDelete} className="btn btn-secondary btn-small delete-btn">
-                Delete Selected
-              </button>
+            <div className="bulk-actions-grid">
+              <div className="bulk-action-row">
+                <input
+                  type="text"
+                  value={bulkFlightName}
+                  onChange={(e) => setBulkFlightName(e.target.value)}
+                  placeholder="Flight Name (e.g., SummerLaunch) - leave blank to clear"
+                  className="bulk-input"
+                />
+                <button onClick={handleBulkAssignFlightNameOnly} className="btn btn-secondary btn-small">
+                  Assign Flight Name
+                </button>
+              </div>
+              <div className="bulk-action-row">
+                <input
+                  type="text"
+                  value={bulkTargeting}
+                  onChange={(e) => setBulkTargeting(e.target.value)}
+                  placeholder="Targeting (e.g., National) - leave blank to clear"
+                  className="bulk-input"
+                />
+                <button onClick={handleBulkAssignTargetingOnly} className="btn btn-secondary btn-small">
+                  Assign Targeting
+                </button>
+              </div>
+              <div className="bulk-action-row">
+                <SearchableSelect
+                  value={bulkProduct}
+                  onChange={setBulkProduct}
+                  options={PRODUCT_OPTIONS}
+                  placeholder="Choose Product"
+                  className="bulk-product-select"
+                />
+                <button onClick={handleBulkAssignProduct} className="btn btn-secondary btn-small">
+                  Assign Product
+                </button>
+              </div>
+              <div className="bulk-action-row bulk-action-buttons">
+                <button onClick={handleGenerateFlightNames} className="btn btn-primary btn-small">
+                  Generate Names
+                </button>
+                <button onClick={handleBulkDelete} className="btn btn-secondary btn-small delete-btn">
+                  Delete Selected
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -516,8 +766,9 @@ export default function PushToSystemsTab({
                   />
                 </th>
                 <th>Status</th>
-                <th>Placement ID</th>
-                <th>Name</th>
+                <th>Generated Flight Name</th>
+                <th>Flight Name</th>
+                <th>Targeting</th>
                 <th>Start</th>
                 <th>End</th>
                 <th>Units</th>
@@ -556,20 +807,27 @@ export default function PushToSystemsTab({
                       </span>
                     </div>
                   </td>
+                  <td className="generated-name-cell">
+                    <div className="generated-name-display">
+                      {flight.generatedName || 'N/A'}
+                    </div>
+                  </td>
                   <td>
                     <input
                       type="text"
-                      value={flight.placement_id || ''}
-                      onChange={(e) => handleFlightChange(index, 'placement_id', e.target.value)}
+                      value={flight.flightName || ''}
+                      onChange={(e) => handleFlightChange(index, 'flightName', e.target.value)}
                       className="flight-input"
+                      placeholder="e.g., SummerLaunch"
                     />
                   </td>
                   <td>
                     <input
                       type="text"
-                      value={flight.name || ''}
-                      onChange={(e) => handleFlightChange(index, 'name', e.target.value)}
+                      value={flight.targeting || ''}
+                      onChange={(e) => handleFlightChange(index, 'targeting', e.target.value)}
                       className="flight-input"
+                      placeholder="e.g., National"
                     />
                   </td>
                   <td>
@@ -624,14 +882,13 @@ export default function PushToSystemsTab({
                     />
                   </td>
                   <td>
-                    <select
+                    <SearchableSelect
                       value={flight.product || 'Choose Product'}
-                      onChange={(e) => handleFlightChange(index, 'product', e.target.value)}
+                      onChange={(value) => handleFlightChange(index, 'product', value)}
+                      options={PRODUCT_OPTIONS}
+                      placeholder="Choose Product"
                       className="flight-select"
-                    >
-                      <option value="Choose Product">Choose Product</option>
-                      <option value="DIO - 1A Targeted Takeover">DR Targeted Video</option>
-                    </select>
+                    />
                   </td>
                   <td>
                     <div className="flight-actions">
@@ -757,4 +1014,80 @@ const requiredFields = [
   'total_contracted_impressions',
   'po_number'
 ];
+
+// Searchable Select Component
+interface SearchableSelectProps {
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder?: string;
+  className?: string;
+}
+
+function SearchableSelect({ value, onChange, options, placeholder = 'Choose...', className = '' }: SearchableSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const filteredOptions = options.filter(option =>
+    option.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setSearchTerm('');
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelect = (option: string) => {
+    onChange(option);
+    setIsOpen(false);
+    setSearchTerm('');
+  };
+
+  return (
+    <div className={`searchable-select ${className}`} ref={wrapperRef}>
+      <div className="searchable-select-control" onClick={() => setIsOpen(!isOpen)}>
+        <span className={value === placeholder ? 'placeholder' : ''}>
+          {value || placeholder}
+        </span>
+        <span className="dropdown-arrow">{isOpen ? '▲' : '▼'}</span>
+      </div>
+      {isOpen && (
+        <div className="searchable-select-dropdown">
+          <input
+            type="text"
+            className="searchable-select-search"
+            placeholder="Search..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            autoFocus
+          />
+          <div className="searchable-select-options">
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option, index) => (
+                <div
+                  key={index}
+                  className={`searchable-select-option ${option === value ? 'selected' : ''}`}
+                  onClick={() => handleSelect(option)}
+                >
+                  {option}
+                </div>
+              ))
+            ) : (
+              <div className="searchable-select-no-results">No results found</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
