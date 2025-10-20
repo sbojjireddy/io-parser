@@ -38,15 +38,18 @@ const generateFlightName = (
   // Add targeting (optional)
   if (targeting) parts.push(targeting.replace(/[^a-zA-Z0-9]/g, ''));
   
-  // Add date range (startMonth-endMonth-year)
+  // Add date range (M.DD-M.DD.YY format)
   if (startDate && endDate) {
     const start = new Date(startDate);
     const end = new Date(endDate);
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const startMonth = monthNames[start.getMonth()];
-    const endMonth = monthNames[end.getMonth()];
-    const year = end.getFullYear();
-    parts.push(`${startMonth}-${endMonth}-${year}`);
+    
+    const startMonth = start.getMonth() + 1; // 1-12
+    const startDay = start.getDate();
+    const endMonth = end.getMonth() + 1; // 1-12
+    const endDay = end.getDate();
+    const year = end.getFullYear().toString().slice(-2); // Last 2 digits
+    
+    parts.push(`${startMonth}.${startDay}-${endMonth}.${endDay}.${year}`);
   }
   
   // Join with underscores, removing any empty parts
@@ -61,14 +64,19 @@ export default function PushToSystemsTab({
   const [editedFields, setEditedFields] = useState<EditedField[]>(
     simplifiedData.fields.map(f => ({ ...f }))
   );
+  // Campaign-level naming fields (for name generation only, separate from parsed fields)
+  const [campaignAgency, setCampaignAgency] = useState(
+    simplifiedData.fields.find(f => f.field === 'agency_name')?.value || ''
+  );
+  const [campaignAdvertiser, setCampaignAdvertiser] = useState(
+    simplifiedData.fields.find(f => f.field === 'advertiser_name')?.value || ''
+  );
+
   const [editedFlights, setEditedFlights] = useState<EditedFlight[]>(() => {
-    const agency = simplifiedData.fields.find(f => f.field === 'agency_name')?.value || '';
-    const advertiser = simplifiedData.fields.find(f => f.field === 'advertiser_name')?.value || '';
-    
     return simplifiedData.flights.map(f => {
       const flightName = f.name || '';
       const targeting = '';
-      const generatedName = generateFlightName(agency, advertiser, flightName, targeting, f.start, f.end);
+      const generatedName = generateFlightName(campaignAgency, campaignAdvertiser, flightName, targeting, f.start, f.end);
       
       return {
         ...f,
@@ -85,14 +93,6 @@ export default function PushToSystemsTab({
   const [isPushed, setIsPushed] = useState(false);
   const [selectedFlights, setSelectedFlights] = useState<Set<number>>(new Set());
   const [bulkProduct, setBulkProduct] = useState('Choose Product');
-  
-  // Campaign-level naming fields (single source of truth)
-  const [campaignAgency, setCampaignAgency] = useState(
-    editedFields.find(f => f.field === 'agency_name')?.value || ''
-  );
-  const [campaignAdvertiser, setCampaignAdvertiser] = useState(
-    editedFields.find(f => f.field === 'advertiser_name')?.value || ''
-  );
   
   // Bulk editing for line-item level fields
   const [bulkFlightName, setBulkFlightName] = useState('');
@@ -371,20 +371,8 @@ export default function PushToSystemsTab({
   };
 
   const handleUpdateCampaignInfo = () => {
-    // Update the campaign-level fields
-    setEditedFields(fields =>
-      fields.map(f => {
-        if (f.field === 'agency_name') {
-          return { ...f, value: campaignAgency, isEdited: true };
-        }
-        if (f.field === 'advertiser_name') {
-          return { ...f, value: campaignAdvertiser, isEdited: true };
-        }
-        return f;
-      })
-    );
-
-    // Regenerate all flight names with new campaign info (don't apply bulk fields)
+    // Only regenerate flight names with new campaign info
+    // Do NOT update the actual agency/advertiser fields (those remain editable independently)
     setEditedFlights(flights =>
       flights.map(f => {
         const generatedName = generateFlightName(
@@ -399,7 +387,7 @@ export default function PushToSystemsTab({
       })
     );
 
-    alert('Campaign info updated and all flight names regenerated');
+    alert('All flight names regenerated with updated campaign naming settings');
   };
 
   const handleSave = () => {
@@ -425,7 +413,8 @@ export default function PushToSystemsTab({
   // Build Unified Planner operations from flights
   const buildOperations = () => {
     return editedFlights.map((flight, i) => {
-      const name = flight.name || `Auto Line ${flight.start} to ${flight.end}`;
+      // Use generatedName, fallback to name or auto-generated
+      const name = flight.generatedName || flight.name || `Auto Line ${flight.start} to ${flight.end}`;
       const externalLineId = `line-${flight.start}${i ? `-${i+1}` : ''}`;
 
       return {
@@ -659,10 +648,13 @@ export default function PushToSystemsTab({
 
       {/* Campaign Settings for Flight Name Generation */}
       <div className="campaign-settings-section">
-        <h2>Campaign Settings (Applied to All Flights)</h2>
+        <h2>Flight Name Generation Settings</h2>
+        <p style={{ fontSize: '13px', color: '#666', margin: '0 0 16px 0' }}>
+          These values are used ONLY for generating flight names. They don't affect the parsed Agency/Advertiser fields above.
+        </p>
         <div className="campaign-settings-grid">
           <div className="config-item">
-            <label>Agency *</label>
+            <label>Agency</label>
             <input
               type="text"
               value={campaignAgency}
@@ -672,7 +664,7 @@ export default function PushToSystemsTab({
             />
           </div>
           <div className="config-item">
-            <label>Advertiser *</label>
+            <label>Advertiser</label>
             <input
               type="text"
               value={campaignAdvertiser}
